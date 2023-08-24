@@ -30,7 +30,6 @@ public class Program
     public static IHostBuilder CreateHostBuilder(string[] args) =>
         Host.CreateDefaultBuilder(args)
             .UseSystemd()
-            .UseConsoleLifetime()
             .ConfigureWebHostDefaults(webBuilder =>
             {
                 webBuilder.UseContentRoot(AppContext.BaseDirectory);

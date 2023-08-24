@@ -34,7 +34,6 @@ public class Program
         var logger = loggerFactory.CreateLogger<Startup>();
         return Host.CreateDefaultBuilder(args)
             .UseSystemd()
-            .UseConsoleLifetime()
             .ConfigureWebHostDefaults(webBuilder =>
             {
                 webBuilder.UseContentRoot(AppContext.BaseDirectory);
