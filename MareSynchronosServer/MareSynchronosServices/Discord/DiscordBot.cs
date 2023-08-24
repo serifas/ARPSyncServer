@@ -123,7 +123,7 @@ internal class DiscordBot : IHostedService
                 builder.WithColor(Color.Green);
                 profile.FlaggedForReport = false;
                 await _mareHubContext.Clients.User(split[1]).SendAsync(nameof(IMareHub.Client_ReceiveServerMessage),
-                        MessageSeverity.Warning, "The Mare profile report against you has been evaluated and your profile re-enabled.")
+                        MessageSeverity.Warning, "The profile report against you has been evaluated and your profile re-enabled.")
                     .ConfigureAwait(false);
                 break;
 
@@ -143,7 +143,7 @@ internal class DiscordBot : IHostedService
                     DiscordIdOrLodestoneAuth = regReporting.DiscordId.ToString()
                 });
                 await _mareHubContext.Clients.User(split[1]).SendAsync(nameof(IMareHub.Client_ReceiveServerMessage),
-                        MessageSeverity.Warning, "The Mare profile report against you has been evaluated and your profile re-enabled.")
+                        MessageSeverity.Warning, "The profile report against you has been evaluated and your profile re-enabled.")
                     .ConfigureAwait(false);
                 break;
 
@@ -155,7 +155,7 @@ internal class DiscordBot : IHostedService
                 profile.ProfileDisabled = true;
                 profile.FlaggedForReport = false;
                 await _mareHubContext.Clients.User(split[1]).SendAsync(nameof(IMareHub.Client_ReceiveServerMessage),
-                    MessageSeverity.Warning, "The Mare profile report against you has been evaluated and the profile functionality permanently disabled.")
+                    MessageSeverity.Warning, "The profile report against you has been evaluated and the profile functionality permanently disabled.")
                     .ConfigureAwait(false);
                 break;
 
@@ -177,7 +177,7 @@ internal class DiscordBot : IHostedService
                     DiscordIdOrLodestoneAuth = reg.DiscordId.ToString()
                 });
                 await _mareHubContext.Clients.User(split[1]).SendAsync(nameof(IMareHub.Client_ReceiveServerMessage),
-                    MessageSeverity.Warning, "The Mare profile report against you has been evaluated and your account permanently banned.")
+                    MessageSeverity.Warning, "The profile report against you has been evaluated and your account permanently banned.")
                     .ConfigureAwait(false);
                 break;
         }
@@ -425,8 +425,8 @@ internal class DiscordBot : IHostedService
             var endPoint = _connectionMultiplexer.GetEndPoints().First();
             var onlineUsers = await _connectionMultiplexer.GetServer(endPoint).KeysAsync(pattern: "UID:*").CountAsync();
 
-            _logger.LogInformation("Users online: " + onlineUsers);
-            await _discordClient.SetActivityAsync(new Game("Mare for " + onlineUsers + " Users")).ConfigureAwait(false);
+            //_logger.LogInformation("Users online: " + onlineUsers);
+            await _discordClient.SetActivityAsync(new Game("with " + onlineUsers + " Users")).ConfigureAwait(false);
             await Task.Delay(TimeSpan.FromSeconds(15)).ConfigureAwait(false);
         }
     }

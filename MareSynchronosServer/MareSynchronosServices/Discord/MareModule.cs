@@ -48,7 +48,7 @@ public class MareModule : InteractionModuleBase
         _connectionMultiplexer = connectionMultiplexer;
     }
 
-    [SlashCommand("register", "Starts the registration process for the Mare Synchronos server of this Discord")]
+    [SlashCommand("register", "Starts the registration process")]
     public async Task Register([Summary("overwrite", "Overwrites your old account")] bool overwrite = false)
     {
         _logger.LogInformation("SlashCommand:{userId}:{Method}:{params}",
@@ -62,7 +62,70 @@ public class MareModule : InteractionModuleBase
                 await DeletePreviousUserAccount(Context.User.Id).ConfigureAwait(false);
             }
 
-            await RespondWithModalAsync<LodestoneModal>("register_modal").ConfigureAwait(false);
+            using var scope = _services.CreateScope();
+            using var db = scope.ServiceProvider.GetService<MareDbContext>();
+
+            if (db.LodeStoneAuth.Any(a => a.DiscordId == Context.User.Id))
+            {
+                EmbedBuilder eb = new();
+                // user already in db
+                eb.WithTitle("Registration failed");
+                eb.WithDescription("You are already registered. Use `/recover overwrite` to delete your old account and create a new one.");
+                await RespondAsync(embeds: new Embed[] { eb.Build() }, ephemeral: true).ConfigureAwait(false);
+            }
+            else
+            {
+                // Loporrit - Register immediately
+                var user = new User();
+
+                var hasValidUid = false;
+                while (!hasValidUid)
+                {
+                    var uid = StringUtils.GenerateRandomString(7);
+                    if (db.Users.Any(u => u.UID == uid || u.Alias == uid)) continue;
+                    user.UID = uid;
+                    hasValidUid = true;
+                }
+
+                user.LastLoggedIn = DateTime.UtcNow;
+
+                var computedHash = StringUtils.Sha256String(StringUtils.GenerateRandomString(64) + DateTime.UtcNow.ToString());
+
+                var auth = new Auth()
+                {
+                    HashedKey = StringUtils.Sha256String(computedHash),
+                    User = user,
+                };
+
+                LodeStoneAuth lsAuth = new LodeStoneAuth()
+                {
+                    DiscordId = Context.User.Id,
+                    HashedLodestoneId = null,
+                    LodestoneAuthString = null,
+                    User = user,
+                    StartedAt = null
+                };
+
+                await db.Users.AddAsync(user).ConfigureAwait(false);
+                await db.Auth.AddAsync(auth).ConfigureAwait(false);
+                await db.LodeStoneAuth.AddAsync(lsAuth).ConfigureAwait(false);
+                await db.SaveChangesAsync().ConfigureAwait(false);
+
+                _botServices.Logger.LogInformation("User registered: {userUID}", user.UID);
+
+                EmbedBuilder eb = new();
+
+                eb.WithTitle("Registration successful");
+                eb.WithDescription("This is your private secret key. Do not share this private secret key with anyone. **If you lose it, it is irrevocably lost.**"
+                                      + Environment.NewLine + Environment.NewLine
+                                      + $"**{computedHash}**"
+                                      + Environment.NewLine + Environment.NewLine
+                                      + "Enter this key in Loporrit Sync and hit Connect / Reconnect."
+                                      + Environment.NewLine
+                                      + "Have fun.");
+
+                await RespondAsync(embeds: new Embed[] { eb.Build() }, ephemeral: true).ConfigureAwait(false);
+            }
         }
         catch (Exception ex)
         {
@@ -145,7 +208,8 @@ public class MareModule : InteractionModuleBase
         }
     }
 
-    [SlashCommand("verify", "Finishes the registration process for the Mare Synchronos server of this Discord")]
+    // Loporrit - Disable /verify command
+    //[SlashCommand("verify", "Finishes the registration process for the Mare Synchronos server of this Discord")]
     public async Task Verify()
     {
         _logger.LogInformation("SlashCommand:{userId}:{Method}",
@@ -181,7 +245,8 @@ public class MareModule : InteractionModuleBase
         }
     }
 
-    [SlashCommand("verify_relink", "Finishes the relink process for your user on the Mare Synchronos server of this Discord")]
+    // Loporrit - Disable /verify command
+    //[SlashCommand("verify_relink", "Finishes the relink process for your user on the Mare Synchronos server of this Discord")]
     public async Task VerifyRelink()
     {
         _logger.LogInformation("SlashCommand:{userId}:{Method}",
@@ -219,7 +284,8 @@ public class MareModule : InteractionModuleBase
 
     }
 
-    [SlashCommand("recover", "Allows you to recover your account by generating a new secret key")]
+    // Loporrit -- Disable /recover command
+    //[SlashCommand("recover", "Allows you to recover your account by generating a new secret key")]
     public async Task Recover([Summary("secondary_uid", "(Optional) Your secondary UID")] string? secondaryUid = null)
     {
         _logger.LogInformation("SlashCommand:{userId}:{Method}",
@@ -254,7 +320,8 @@ public class MareModule : InteractionModuleBase
         }
     }
 
-    [SlashCommand("relink", "Allows you to link a new Discord account to an existing Mare account")]
+    // Loporrit -- Disable /relink command
+    //[SlashCommand("relink", "Allows you to link a new Discord account to an existing Mare account")]
     public async Task Relink()
     {
         _logger.LogInformation("SlashCommand:{userId}:{Method}",
@@ -424,7 +491,7 @@ public class MareModule : InteractionModuleBase
         if (lodestoneAuth == null)
         {
             embed.WithTitle("Failed to add secondary user");
-            embed.WithDescription("You have no registered Mare account yet. Register a Mare account first before trying to add secondary keys.");
+            embed.WithDescription("You have no registered account yet. Register an account first before trying to add secondary keys.");
             return embed.Build();
         }
 
@@ -446,7 +513,7 @@ public class MareModule : InteractionModuleBase
         var hasValidUid = false;
         while (!hasValidUid)
         {
-            var uid = StringUtils.GenerateRandomString(10);
+            var uid = StringUtils.GenerateRandomString(7);
             if (await db.Users.AnyAsync(u => u.UID == uid || u.Alias == uid).ConfigureAwait(false)) continue;
             newUser.UID = uid;
             hasValidUid = true;
@@ -457,7 +524,8 @@ public class MareModule : InteractionModuleBase
         {
             HashedKey = StringUtils.Sha256String(computedHash),
             User = newUser,
-            PrimaryUserUID = lodestoneAuth.User.UID
+            PrimaryUserUID = lodestoneAuth.User.UID,
+            UserUID = newUser.UID
         };
 
         await db.Users.AddAsync(newUser).ConfigureAwait(false);
@@ -531,7 +599,7 @@ public class MareModule : InteractionModuleBase
         if (primaryUser == null)
         {
             eb.WithTitle("No account");
-            eb.WithDescription("No Mare account was found associated to your Discord user");
+            eb.WithDescription("No account was found associated to your Discord user");
             return eb;
         }
 
@@ -558,7 +626,7 @@ public class MareModule : InteractionModuleBase
             if (userInDb == null)
             {
                 eb.WithTitle("No account");
-                eb.WithDescription("The Discord user has no valid Mare account");
+                eb.WithDescription("The Discord user has no valid account");
                 return eb;
             }
 
@@ -701,7 +769,7 @@ public class MareModule : InteractionModuleBase
                                       + Environment.NewLine + Environment.NewLine
                                       + $"**{computedHash}**"
                                       + Environment.NewLine + Environment.NewLine
-                                      + "Enter this key in Mare Synchronos and hit save to connect to the service.");
+                                      + "Enter this key in Loporrit Sync and hit save to connect to the service.");
 
                 await db.Auth.AddAsync(auth).ConfigureAwait(false);
                 await db.SaveChangesAsync().ConfigureAwait(false);
@@ -1130,7 +1198,7 @@ public class MareModule : InteractionModuleBase
                     var hasValidUid = false;
                     while (!hasValidUid)
                     {
-                        var uid = StringUtils.GenerateRandomString(10);
+                        var uid = StringUtils.GenerateRandomString(7);
                         if (db.Users.Any(u => u.UID == uid || u.Alias == uid)) continue;
                         user.UID = uid;
                         hasValidUid = true;
@@ -1165,7 +1233,7 @@ public class MareModule : InteractionModuleBase
                                                  + Environment.NewLine + Environment.NewLine
                                                  + $"**{computedHash}**"
                                                  + Environment.NewLine + Environment.NewLine
-                                                 + "Enter this key in Mare Synchronos and hit save to connect to the service."
+                                                 + "Enter this key in to the plugin when prompted and hit save to connect to the service."
                                                  + Environment.NewLine
                                                  + "You should connect as soon as possible to not get caught by the automatic cleanup process."
                                                  + Environment.NewLine
