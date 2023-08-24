@@ -34,27 +34,22 @@ public class CacheController : ControllerBase
         _requestQueue.ActivateRequest(requestId);
 
         Response.ContentType = "application/octet-stream";
-        var memoryStream = new MemoryStream();
-        var streamWriter = new BinaryWriter(memoryStream);
 
         long requestSize = 0;
+        var streamList = new List<Stream>();
 
         foreach (var file in request.FileIds)
         {
             var fs = await _cachedFileProvider.GetAndDownloadFileStream(file);
             if (fs == null) continue;
-            streamWriter.Write(Encoding.ASCII.GetBytes("#" + file + ":" + fs.Length.ToString(CultureInfo.InvariantCulture) + "#"));
-            byte[] buffer = new byte[fs.Length];
-            _ = await fs.ReadAsync(buffer, HttpContext.RequestAborted);
-            streamWriter.Write(buffer);
+            var headerBytes = Encoding.ASCII.GetBytes("#" + file + ":" + fs.Length.ToString(CultureInfo.InvariantCulture) + "#");
+            streamList.Add(new MemoryStream(headerBytes));
+            streamList.Add(fs);
             requestSize += fs.Length;
         }
 
-        streamWriter.Flush();
-        memoryStream.Position = 0;
-
         _fileStatisticsService.LogRequest(requestSize);
 
-        return _requestFileStreamResultFactory.Create(requestId, memoryStream);
+        return _requestFileStreamResultFactory.Create(requestId, new ConcatenatedStreamReader(streamList));
     }
 }
