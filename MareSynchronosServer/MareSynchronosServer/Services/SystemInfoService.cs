@@ -61,7 +61,7 @@ public class SystemInfoService : IHostedService, IDisposable
 
             if (_config.IsMain)
             {
-                _logger.LogInformation("Sending System Info, Online Users: {onlineUsers}", onlineUsers);
+                _logger.LogTrace("Sending System Info, Online Users: {onlineUsers}", onlineUsers);
 
                 _hubContext.Clients.All.Client_UpdateSystemInfo(SystemInfoDto);
 
