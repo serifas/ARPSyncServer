@@ -1,0 +1,153 @@
+using System.Collections.Concurrent;
+using MareSynchronos.API.Dto.Account;
+using MareSynchronosShared.Data;
+using MareSynchronosShared.Metrics;
+using MareSynchronosShared.Services;
+using MareSynchronosShared.Utils;
+using Microsoft.EntityFrameworkCore;
+using System.Text.RegularExpressions;
+using MareSynchronosShared.Models;
+
+namespace MareSynchronosServer.Authentication;
+
+internal record IpRegistrationCount
+{
+    private int count = 1;
+    public int Count => count;
+    public Task ResetTask { get; set; }
+	public CancellationTokenSource ResetTaskCts { get; set; }
+    public void IncreaseCount()
+    {
+        Interlocked.Increment(ref count);
+    }
+}
+
+public class AccountRegistrationService
+{
+    private readonly MareMetrics _metrics;
+    private readonly MareDbContext _mareDbContext;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IConfigurationService<MareConfigurationAuthBase> _configurationService;
+    private readonly ILogger<AccountRegistrationService> _logger;
+    private readonly ConcurrentDictionary<string, IpRegistrationCount> _registrationsPerIp = new(StringComparer.Ordinal);
+
+    private Regex _registrationUserAgentRegex = new Regex(@"^MareSynchronos/", RegexOptions.Compiled);
+
+    public AccountRegistrationService(MareMetrics metrics, MareDbContext mareDbContext,
+		IServiceScopeFactory serviceScopeFactory, IConfigurationService<MareConfigurationAuthBase> configuration,
+		ILogger<AccountRegistrationService> logger)
+    {
+        _mareDbContext = mareDbContext;
+        _logger = logger;
+        _configurationService = configuration;
+        _metrics = metrics;
+        _serviceScopeFactory = serviceScopeFactory;
+    }
+
+    public async Task<RegisterReplyDto> RegisterAccountAsync(string ua, string ip)
+    {
+		var reply = new RegisterReplyDto();
+
+		if (!_registrationUserAgentRegex.Match(ua).Success)
+        {
+            reply.ErrorMessage = "User-Agent not allowed";
+            return reply;
+        }
+
+        if (_registrationsPerIp.TryGetValue(ip, out var registrationCount)
+            && registrationCount.Count >= _configurationService.GetValueOrDefault(nameof(MareConfigurationAuthBase.RegisterIpLimit), 3))
+        {
+            _logger.LogWarning("Rejecting {ip} for registration spam", ip);
+
+            if (registrationCount.ResetTask == null)
+            {
+				registrationCount.ResetTaskCts = new CancellationTokenSource();
+
+				if (registrationCount.ResetTaskCts != null)
+					registrationCount.ResetTaskCts.Cancel();
+
+                registrationCount.ResetTask = Task.Run(async () =>
+                {
+                    await Task.Delay(TimeSpan.FromMinutes(_configurationService.GetValueOrDefault(nameof(MareConfigurationAuthBase.RegisterIpDurationInMinutes), 10))).ConfigureAwait(false);
+
+                }).ContinueWith((t) =>
+                {
+                    _registrationsPerIp.Remove(ip, out _);
+                }, registrationCount.ResetTaskCts.Token);
+            }
+            reply.ErrorMessage = "Too many registrations from this IP. Please try again later.";
+            return reply;
+        }
+
+        var user = new User();
+
+        var hasValidUid = false;
+        while (!hasValidUid)
+        {
+            var uid = StringUtils.GenerateRandomString(7);
+            if (_mareDbContext.Users.Any(u => u.UID == uid || u.Alias == uid)) continue;
+            user.UID = uid;
+            hasValidUid = true;
+        }
+
+        // make the first registered user on the service to admin
+        if (!await _mareDbContext.Users.AnyAsync().ConfigureAwait(false))
+        {
+            user.IsAdmin = true;
+        }
+
+        user.LastLoggedIn = DateTime.UtcNow;
+
+        var computedHash = StringUtils.Sha256String(StringUtils.GenerateRandomString(64) + DateTime.UtcNow.ToString());
+        var auth = new Auth()
+        {
+            HashedKey = StringUtils.Sha256String(computedHash),
+            User = user,
+        };
+
+        await _mareDbContext.Users.AddAsync(user).ConfigureAwait(false);
+        await _mareDbContext.Auth.AddAsync(auth).ConfigureAwait(false);
+		await _mareDbContext.SaveChangesAsync().ConfigureAwait(false);
+
+        _logger.LogInformation("User registered: {userUID} from IP {ip}", user.UID, ip);
+        _metrics.IncCounter(MetricsAPI.CounterAuthenticationRequests);
+
+        reply.Success = true;
+        reply.UID = user.UID;
+        reply.SecretKey = computedHash;
+
+        RecordIpRegistration(ip);
+
+		return reply;
+    }
+
+    private void RecordIpRegistration(string ip)
+    {
+        var whitelisted = _configurationService.GetValueOrDefault(nameof(MareConfigurationAuthBase.WhitelistedIps), new List<string>());
+        if (!whitelisted.Any(w => ip.Contains(w, StringComparison.OrdinalIgnoreCase)))
+        {
+            if (_registrationsPerIp.TryGetValue(ip, out var count))
+            {
+                count.IncreaseCount();
+            }
+            else
+            {
+                count = _registrationsPerIp[ip] = new IpRegistrationCount();
+
+				if (count.ResetTaskCts != null)
+					count.ResetTaskCts.Cancel();
+
+				count.ResetTaskCts = new CancellationTokenSource();
+
+                count.ResetTask = Task.Run(async () =>
+                {
+                    await Task.Delay(TimeSpan.FromMinutes(_configurationService.GetValueOrDefault(nameof(MareConfigurationAuthBase.RegisterIpDurationInMinutes), 10))).ConfigureAwait(false);
+
+                }).ContinueWith((t) =>
+                {
+                    _registrationsPerIp.Remove(ip, out _);
+                }, count.ResetTaskCts.Token);
+            }
+        }
+    }
+}

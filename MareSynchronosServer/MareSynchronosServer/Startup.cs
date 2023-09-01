@@ -184,6 +184,7 @@ public class Startup
     private static void ConfigureAuthorization(IServiceCollection services)
     {
         services.AddSingleton<SecretKeyAuthenticatorService>();
+        services.AddSingleton<AccountRegistrationService>();
         services.AddTransient<IAuthorizationHandler, UserRequirementHandler>();
 
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
@@ -257,6 +258,7 @@ public class Startup
             MetricsAPI.CounterAuthenticationFailures,
             MetricsAPI.CounterAuthenticationRequests,
             MetricsAPI.CounterAuthenticationSuccesses,
+            MetricsAPI.CounterAccountsCreated,
         }, new List<string>
         {
             MetricsAPI.GaugeAuthorizedConnections,

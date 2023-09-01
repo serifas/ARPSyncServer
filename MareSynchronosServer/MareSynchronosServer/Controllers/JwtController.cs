@@ -24,10 +24,12 @@ public class JwtController : Controller
     private readonly IRedisDatabase _redis;
     private readonly MareDbContext _mareDbContext;
     private readonly SecretKeyAuthenticatorService _secretKeyAuthenticatorService;
+    private readonly AccountRegistrationService _accountRegistrationService;
     private readonly IConfigurationService<MareConfigurationAuthBase> _configuration;
 
     public JwtController(IHttpContextAccessor accessor, MareDbContext mareDbContext,
         SecretKeyAuthenticatorService secretKeyAuthenticatorService,
+        AccountRegistrationService accountRegistrationService,
         IConfigurationService<MareConfigurationAuthBase> configuration,
         IRedisDatabase redisDb)
     {
@@ -35,6 +37,7 @@ public class JwtController : Controller
         _redis = redisDb;
         _mareDbContext = mareDbContext;
         _secretKeyAuthenticatorService = secretKeyAuthenticatorService;
+        _accountRegistrationService = accountRegistrationService;
         _configuration = configuration;
     }
 
@@ -112,6 +115,15 @@ public class JwtController : Controller
         });
 
         return Content(token.RawData);
+    }
+
+    [AllowAnonymous]
+    [HttpPost(MareAuth.Auth_Register)]
+    public async Task<IActionResult> Register()
+    {
+        var ua = HttpContext.Request.Headers["User-Agent"][0] ?? "-";
+        var ip = _accessor.GetIpAddress();
+        return Json(await _accountRegistrationService.RegisterAccountAsync(ua, ip));
     }
 
     private JwtSecurityToken CreateToken(IEnumerable<Claim> authClaims)
