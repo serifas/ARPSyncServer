@@ -52,6 +52,14 @@ public class RequestQueueService : IHostedService
     private async Task<bool> IsHighPriority(string uid, MareDbContext mareDbContext)
     {
         return false;
+        if (!_priorityCache.TryGetValue(uid, out PriorityEntry entry) || entry.LastChecked.Add(TimeSpan.FromHours(6)) < DateTime.UtcNow)
+        {
+            var user = await mareDbContext.Users.FirstOrDefaultAsync(u => u.UID == uid).ConfigureAwait(false);
+            entry = new(user != null && !string.IsNullOrEmpty(user.Alias), DateTime.UtcNow);
+            _priorityCache[uid] = entry;
+        }
+
+        return entry.IsHighPriority;
     }
 
     public async Task EnqueueUser(UserRequest request, MareDbContext mareDbContext)
