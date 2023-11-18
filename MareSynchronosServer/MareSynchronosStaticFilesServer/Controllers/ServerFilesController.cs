@@ -166,14 +166,26 @@ public class ServerFilesController : ControllerBase
         var existingFile = await _mareDbContext.Files.SingleOrDefaultAsync(f => f.Hash == hash);
         if (existingFile != null) return Ok();
 
-        SemaphoreSlim fileLock;
-        lock (_fileUploadLocks)
+        SemaphoreSlim? fileLock = null;
+        bool successfullyWaited = false;
+        while (!successfullyWaited && !requestAborted.IsCancellationRequested)
         {
-            if (!_fileUploadLocks.TryGetValue(hash, out fileLock))
-                _fileUploadLocks[hash] = fileLock = new SemaphoreSlim(1);
-        }
+            lock (_fileUploadLocks)
+            {
+                if (!_fileUploadLocks.TryGetValue(hash, out fileLock))
+                    _fileUploadLocks[hash] = fileLock = new SemaphoreSlim(1);
+            }
 
-        await fileLock.WaitAsync(requestAborted).ConfigureAwait(false);
+            try
+            {
+                await fileLock.WaitAsync(requestAborted).ConfigureAwait(false);
+                successfullyWaited = true;
+            }
+            catch (ObjectDisposedException)
+            {
+                _logger.LogWarning("Semaphore disposed for {hash}, recreating", hash);
+            }
+        }
 
         try
         {
@@ -257,7 +269,19 @@ public class ServerFilesController : ControllerBase
         }
         finally
         {
-            fileLock.Release();
+            try
+            {
+                fileLock?.Release();
+                fileLock?.Dispose();
+            }
+            catch (ObjectDisposedException)
+            {
+                // it's disposed whatever
+            }
+            finally
+            {
+                _fileUploadLocks.TryRemove(hash, out _);
+            }
         }
     }
 }
