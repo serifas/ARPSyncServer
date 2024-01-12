@@ -36,7 +36,7 @@ public class ServerFilesController : ControllerBase
 
     public ServerFilesController(ILogger<ServerFilesController> logger, CachedFileProvider cachedFileProvider,
         IConfigurationService<StaticFilesServerConfiguration> configuration,
-        IHubContext<MareSynchronosServer.Hubs.MareHub> hubContext,
+        IHubContext<MareHub> hubContext,
         MareDbContext mareDbContext, MareMetrics metricsClient) : base(logger)
     {
         _basePath = configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.CacheDirectory));
@@ -79,14 +79,35 @@ public class ServerFilesController : ControllerBase
 
         var cacheFile = await _mareDbContext.Files.AsNoTracking().Where(f => hashes.Contains(f.Hash)).AsNoTracking().Select(k => new { k.Hash, k.Size }).AsNoTracking().ToListAsync().ConfigureAwait(false);
 
-        var shardConfig = new List<CdnShardConfiguration>(_configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.CdnShardConfiguration), new List<CdnShardConfiguration>()));
+        var allFileShards = new List<CdnShardConfiguration>(_configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.CdnShardConfiguration), new List<CdnShardConfiguration>()));
 
         foreach (var file in cacheFile)
         {
             var forbiddenFile = forbiddenFiles.SingleOrDefault(f => string.Equals(f.Hash, file.Hash, StringComparison.OrdinalIgnoreCase));
+            Uri? baseUrl = null;
 
-            var matchedShardConfig = shardConfig.OrderBy(g => Guid.NewGuid()).FirstOrDefault(f => new Regex(f.FileMatch).IsMatch(file.Hash));
-            var baseUrl = matchedShardConfig?.CdnFullUrl ?? _configuration.GetValue<Uri>(nameof(StaticFilesServerConfiguration.CdnFullUrl));
+            if (forbiddenFile == null)
+            {
+                List<CdnShardConfiguration> selectedShards = new();
+                var matchingShards = allFileShards.Where(f => new Regex(f.FileMatch).IsMatch(file.Hash)).ToList();
+
+                if (string.Equals(Continent, "*", StringComparison.Ordinal))
+                {
+                    selectedShards = matchingShards;
+                }
+                else
+                {
+                    selectedShards = matchingShards.Where(c => c.Continents.Contains(Continent, StringComparer.OrdinalIgnoreCase)).ToList();
+                    if (!selectedShards.Any()) selectedShards = matchingShards;
+                }
+
+                var shard = selectedShards
+                    .OrderBy(s => !s.Continents.Any() ? 0 : 1)
+                    .ThenBy(s => s.Continents.Contains("*", StringComparer.Ordinal) ? 0 : 1)
+                    .ThenBy(g => Guid.NewGuid()).FirstOrDefault();
+
+                baseUrl = shard?.CdnFullUrl ?? _configuration.GetValue<Uri>(nameof(StaticFilesServerConfiguration.CdnFullUrl));
+            }
 
             response.Add(new DownloadFileDto
             {
@@ -95,7 +116,7 @@ public class ServerFilesController : ControllerBase
                 IsForbidden = forbiddenFile != null,
                 Hash = file.Hash,
                 Size = file.Size,
-                Url = baseUrl.ToString(),
+                Url = baseUrl?.ToString() ?? string.Empty,
             });
         }
 

@@ -1,5 +1,6 @@
 ﻿using MareSynchronos.API.Routes;
 using MareSynchronosServer.Authentication;
+using MareSynchronosServer.Services;
 using MareSynchronosShared;
 using MareSynchronosShared.Data;
 using MareSynchronosShared.Models;
@@ -23,6 +24,7 @@ public class JwtController : Controller
     private readonly IHttpContextAccessor _accessor;
     private readonly IRedisDatabase _redis;
     private readonly MareDbContext _mareDbContext;
+    private readonly GeoIPService _geoIPProvider;
     private readonly SecretKeyAuthenticatorService _secretKeyAuthenticatorService;
     private readonly AccountRegistrationService _accountRegistrationService;
     private readonly IConfigurationService<MareConfigurationAuthBase> _configuration;
@@ -31,10 +33,11 @@ public class JwtController : Controller
         SecretKeyAuthenticatorService secretKeyAuthenticatorService,
         AccountRegistrationService accountRegistrationService,
         IConfigurationService<MareConfigurationAuthBase> configuration,
-        IRedisDatabase redisDb)
+        IRedisDatabase redisDb, GeoIPService geoIPProvider)
     {
         _accessor = accessor;
         _redis = redisDb;
+        _geoIPProvider = geoIPProvider;
         _mareDbContext = mareDbContext;
         _secretKeyAuthenticatorService = secretKeyAuthenticatorService;
         _accountRegistrationService = accountRegistrationService;
@@ -112,6 +115,7 @@ public class JwtController : Controller
         {
             new Claim(MareClaimTypes.Uid, authResult.Uid),
             new Claim(MareClaimTypes.CharaIdent, charaIdent),
+            new Claim(MareClaimTypes.Continent, await _geoIPProvider.GetCountryFromIP(_accessor)),
         });
 
         return Content(token.RawData);
@@ -140,3 +144,4 @@ public class JwtController : Controller
         return handler.CreateJwtSecurityToken(token);
     }
 }
+
