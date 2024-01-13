@@ -9,7 +9,6 @@ public class RequestController : ControllerBase
 {
     private readonly CachedFileProvider _cachedFileProvider;
     private readonly RequestQueueService _requestQueue;
-    private static readonly SemaphoreSlim _parallelRequestSemaphore = new(500);
 
     public RequestController(ILogger<RequestController> logger, CachedFileProvider cachedFileProvider, RequestQueueService requestQueue) : base(logger)
     {
@@ -23,15 +22,10 @@ public class RequestController : ControllerBase
     {
         try
         {
-            await _parallelRequestSemaphore.WaitAsync(HttpContext.RequestAborted);
             _requestQueue.RemoveFromQueue(requestId, MareUser, IsPriority);
             return Ok();
         }
         catch (OperationCanceledException) { return BadRequest(); }
-        finally
-        {
-            _parallelRequestSemaphore.Release();
-        }
     }
 
     [HttpPost]
@@ -40,7 +34,6 @@ public class RequestController : ControllerBase
     {
         try
         {
-            await _parallelRequestSemaphore.WaitAsync(HttpContext.RequestAborted);
             foreach (var file in files)
             {
                 _logger.LogDebug("Prerequested file: " + file);
@@ -48,15 +41,11 @@ public class RequestController : ControllerBase
             }
 
             Guid g = Guid.NewGuid();
-            _requestQueue.EnqueueUser(new(g, MareUser, files.ToList()), IsPriority);
+            await _requestQueue.EnqueueUser(new(g, MareUser, files.ToList()), IsPriority, HttpContext.RequestAborted);
 
             return Ok(g);
         }
         catch (OperationCanceledException) { return BadRequest(); }
-        finally
-        {
-            _parallelRequestSemaphore.Release();
-        }
     }
 
     [HttpGet]
@@ -66,7 +55,7 @@ public class RequestController : ControllerBase
         try
         {
             if (!_requestQueue.StillEnqueued(requestId, MareUser, IsPriority))
-                _requestQueue.EnqueueUser(new(requestId, MareUser, files.ToList()), IsPriority);
+                await _requestQueue.EnqueueUser(new(requestId, MareUser, files.ToList()), IsPriority, HttpContext.RequestAborted);
             return Ok();
         }
         catch (OperationCanceledException) { return BadRequest(); }
