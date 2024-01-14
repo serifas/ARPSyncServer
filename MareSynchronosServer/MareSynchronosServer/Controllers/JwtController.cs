@@ -69,7 +69,7 @@ public class JwtController : Controller
         }
 
         if (!authResult.Success && !authResult.TempBan) return Unauthorized("The provided secret key is invalid. Verify your accounts existence and/or recover the secret key.");
-        if (!authResult.Success && authResult.TempBan) return Unauthorized("You are temporarily banned. Try connecting again in 5 minutes.");
+        if (!authResult.Success && authResult.TempBan) return Unauthorized("Due to an excessive amount of failed authentication attempts you are temporarily banned. Check your Secret Key configuration and try connecting again in 5 minutes.");
         if (authResult.Permaban)
         {
             if (!_mareDbContext.BannedUsers.Any(c => c.CharacterIdentification == charaIdent))
@@ -115,6 +115,7 @@ public class JwtController : Controller
         {
             new Claim(MareClaimTypes.Uid, authResult.Uid),
             new Claim(MareClaimTypes.CharaIdent, charaIdent),
+            new Claim(MareClaimTypes.Alias, authResult.Alias),
             new Claim(MareClaimTypes.Continent, await _geoIPProvider.GetCountryFromIP(_accessor)),
         });
 

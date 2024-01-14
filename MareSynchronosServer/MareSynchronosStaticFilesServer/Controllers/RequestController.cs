@@ -1,5 +1,4 @@
 ﻿using MareSynchronos.API.Routes;
-using MareSynchronosShared.Data;
 using MareSynchronosStaticFilesServer.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,14 +9,12 @@ public class RequestController : ControllerBase
 {
     private readonly CachedFileProvider _cachedFileProvider;
     private readonly RequestQueueService _requestQueue;
-    private readonly MareDbContext _mareDbContext;
     private static readonly SemaphoreSlim _parallelRequestSemaphore = new(500);
 
-    public RequestController(ILogger<RequestController> logger, CachedFileProvider cachedFileProvider, RequestQueueService requestQueue, MareDbContext mareDbContext) : base(logger)
+    public RequestController(ILogger<RequestController> logger, CachedFileProvider cachedFileProvider, RequestQueueService requestQueue) : base(logger)
     {
         _cachedFileProvider = cachedFileProvider;
         _requestQueue = requestQueue;
-        _mareDbContext = mareDbContext;
     }
 
     [HttpGet]
@@ -27,7 +24,7 @@ public class RequestController : ControllerBase
         try
         {
             await _parallelRequestSemaphore.WaitAsync(HttpContext.RequestAborted);
-            _requestQueue.RemoveFromQueue(requestId, MareUser);
+            _requestQueue.RemoveFromQueue(requestId, MareUser, IsPriority);
             return Ok();
         }
         catch (OperationCanceledException) { return BadRequest(); }
@@ -51,7 +48,7 @@ public class RequestController : ControllerBase
             }
 
             Guid g = Guid.NewGuid();
-            await _requestQueue.EnqueueUser(new(g, MareUser, files.ToList()), _mareDbContext);
+            _requestQueue.EnqueueUser(new(g, MareUser, files.ToList()), IsPriority);
 
             return Ok(g);
         }
@@ -68,8 +65,8 @@ public class RequestController : ControllerBase
     {
         try
         {
-            if (!await _requestQueue.StillEnqueued(requestId, MareUser, _mareDbContext))
-                await _requestQueue.EnqueueUser(new(requestId, MareUser, files.ToList()), _mareDbContext);
+            if (!_requestQueue.StillEnqueued(requestId, MareUser, IsPriority))
+                _requestQueue.EnqueueUser(new(requestId, MareUser, files.ToList()), IsPriority);
             return Ok();
         }
         catch (OperationCanceledException) { return BadRequest(); }
