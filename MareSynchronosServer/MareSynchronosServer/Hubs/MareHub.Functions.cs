@@ -16,6 +16,8 @@ public partial class MareHub
 
     public string UserUID => Context.User?.Claims?.SingleOrDefault(c => string.Equals(c.Type, MareClaimTypes.Uid, StringComparison.Ordinal))?.Value ?? throw new Exception("No UID in Claims");
 
+    public string Continent => Context.User?.Claims?.SingleOrDefault(c => string.Equals(c.Type, MareClaimTypes.Continent, StringComparison.Ordinal))?.Value ?? "UNK";
+
     private async Task DeleteUser(User user)
     {
         var ownPairData = await _dbContext.ClientPairs.Where(u => u.User.UID == user.UID).ToListAsync().ConfigureAwait(false);

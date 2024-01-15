@@ -17,13 +17,32 @@ public class MareMetrics
         foreach (var gauge in gaugesToServe)
         {
             logger.LogInformation($"Creating Metric for Counter {gauge}");
-            gauges.Add(gauge, Prometheus.Metrics.CreateGauge(gauge, gauge));
+            if (!string.Equals(gauge, MetricsAPI.GaugeConnections, StringComparison.OrdinalIgnoreCase))
+                gauges.Add(gauge, Prometheus.Metrics.CreateGauge(gauge, gauge));
+            else
+                gauges.Add(gauge, Prometheus.Metrics.CreateGauge(gauge, gauge, new[] { "continent" }));
         }
     }
 
     private readonly Dictionary<string, Counter> counters = new(StringComparer.Ordinal);
 
     private readonly Dictionary<string, Gauge> gauges = new(StringComparer.Ordinal);
+
+    public void IncGaugeWithLabels(string gaugeName, double value = 1.0, params string[] labels)
+    {
+        if (_gauges.TryGetValue(gaugeName, out Gauge gauge))
+        {
+            gauge.WithLabels(labels).Inc(value);
+        }
+    }
+
+    public void DecGaugeWithLabels(string gaugeName, double value = 1.0, params string[] labels)
+    {
+        if (_gauges.TryGetValue(gaugeName, out Gauge gauge))
+        {
+            gauge.WithLabels(labels).Dec(value);
+        }
+    }
 
     public void SetGaugeTo(string gaugeName, double value)
     {
