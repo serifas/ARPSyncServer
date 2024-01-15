@@ -231,7 +231,7 @@ internal class DiscordBot : IHostedService
             {
                 using (var scope = _services.CreateScope())
                 {
-                    _logger.LogInformation("Checking for Profile Reports");
+                    _logger.LogTrace("Checking for Profile Reports");
                     var dbContext = scope.ServiceProvider.GetRequiredService<MareDbContext>();
                     if (!dbContext.UserProfileReports.Any())
                     {
