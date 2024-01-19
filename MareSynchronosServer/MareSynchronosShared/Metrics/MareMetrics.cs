@@ -30,49 +30,55 @@ public class MareMetrics
 
     public void IncGaugeWithLabels(string gaugeName, double value = 1.0, params string[] labels)
     {
-        if (_gauges.TryGetValue(gaugeName, out Gauge gauge))
+        if (gauges.TryGetValue(gaugeName, out Gauge gauge))
         {
-            gauge.WithLabels(labels).Inc(value);
+            lock (gauge)
+                gauge.WithLabels(labels).Inc(value);
         }
     }
 
     public void DecGaugeWithLabels(string gaugeName, double value = 1.0, params string[] labels)
     {
-        if (_gauges.TryGetValue(gaugeName, out Gauge gauge))
+        if (gauges.TryGetValue(gaugeName, out Gauge gauge))
         {
-            gauge.WithLabels(labels).Dec(value);
+            lock (gauge)
+                gauge.WithLabels(labels).Dec(value);
         }
     }
 
     public void SetGaugeTo(string gaugeName, double value)
     {
-        if (gauges.ContainsKey(gaugeName))
+        if (gauges.TryGetValue(gaugeName, out Gauge gauge))
         {
-            gauges[gaugeName].Set(value);
+            lock (gauge)
+                gauge.Set(value);
         }
     }
 
     public void IncGauge(string gaugeName, double value = 1.0)
     {
-        if (gauges.ContainsKey(gaugeName))
+        if (gauges.TryGetValue(gaugeName, out Gauge gauge))
         {
-            gauges[gaugeName].Inc(value);
+            lock (gauge)
+                gauge.Inc(value);
         }
     }
 
     public void DecGauge(string gaugeName, double value = 1.0)
     {
-        if (gauges.ContainsKey(gaugeName))
+        if (gauges.TryGetValue(gaugeName, out Gauge gauge))
         {
-            gauges[gaugeName].Dec(value);
+            lock (gauge)
+                gauge.Dec(value);
         }
     }
 
     public void IncCounter(string counterName, double value = 1.0)
     {
-        if (counters.ContainsKey(counterName))
+        if (counters.TryGetValue(counterName, out Counter counter))
         {
-            counters[counterName].Inc(value);
+            lock (counter)
+                counter.Inc(value);
         }
     }
 }
