@@ -113,6 +113,8 @@ public partial class MareHub
         var allPairedUsers = await GetAllPairedUnpausedUsers().ConfigureAwait(false);
         var pairs = await GetOnlineUsers(allPairedUsers).ConfigureAwait(false);
 
+        await SendOnlineToAllPairedUsers().ConfigureAwait(false);
+
         return pairs.Select(p => new OnlineUserIdentDto(new UserData(p.Key), p.Value)).ToList();
     }
 
