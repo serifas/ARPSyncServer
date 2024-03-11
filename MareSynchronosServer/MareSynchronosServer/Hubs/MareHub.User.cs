@@ -360,8 +360,6 @@ public partial class MareHub
 
         await _dbContext.SaveChangesAsync().ConfigureAwait(false);
 
-        await Clients.User(dto.User.UID).Client_ReceiveServerMessage(MessageSeverity.Warning, "Your profile has been reported and disabled for admin validation").ConfigureAwait(false);
-
         var allPairedUsers = await GetAllPairedUnpausedUsers(dto.User.UID).ConfigureAwait(false);
         var pairs = await GetOnlineUsers(allPairedUsers).ConfigureAwait(false);
 

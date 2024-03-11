@@ -122,9 +122,6 @@ internal class DiscordBot : IHostedService
                 builder.AddField("Resolution", $"Dismissed by <@{userId}>");
                 builder.WithColor(Color.Green);
                 profile.FlaggedForReport = false;
-                await _mareHubContext.Clients.User(split[1]).SendAsync(nameof(IMareHub.Client_ReceiveServerMessage),
-                        MessageSeverity.Warning, "The profile report against you has been evaluated and your profile re-enabled.")
-                    .ConfigureAwait(false);
                 break;
 
             case "banreporting":
@@ -142,9 +139,6 @@ internal class DiscordBot : IHostedService
                 {
                     DiscordIdOrLodestoneAuth = regReporting.DiscordId.ToString()
                 });
-                await _mareHubContext.Clients.User(split[1]).SendAsync(nameof(IMareHub.Client_ReceiveServerMessage),
-                        MessageSeverity.Warning, "The profile report against you has been evaluated and your profile re-enabled.")
-                    .ConfigureAwait(false);
                 break;
 
             case "banprofile":
@@ -154,9 +148,6 @@ internal class DiscordBot : IHostedService
                 profile.UserDescription = null;
                 profile.ProfileDisabled = true;
                 profile.FlaggedForReport = false;
-                await _mareHubContext.Clients.User(split[1]).SendAsync(nameof(IMareHub.Client_ReceiveServerMessage),
-                    MessageSeverity.Warning, "The profile report against you has been evaluated and the profile functionality permanently disabled.")
-                    .ConfigureAwait(false);
                 break;
 
             case "banuser":
@@ -176,9 +167,6 @@ internal class DiscordBot : IHostedService
                 {
                     DiscordIdOrLodestoneAuth = reg.DiscordId.ToString()
                 });
-                await _mareHubContext.Clients.User(split[1]).SendAsync(nameof(IMareHub.Client_ReceiveServerMessage),
-                    MessageSeverity.Warning, "The profile report against you has been evaluated and your account permanently banned.")
-                    .ConfigureAwait(false);
                 break;
         }
 
