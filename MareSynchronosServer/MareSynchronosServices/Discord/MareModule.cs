@@ -48,7 +48,7 @@ public class MareModule : InteractionModuleBase
         _connectionMultiplexer = connectionMultiplexer;
     }
 
-    [SlashCommand("register", "Starts the registration process")]
+    //[SlashCommand("register", "Starts the registration process")]
     public async Task Register([Summary("overwrite", "Overwrites your old account")] bool overwrite = false)
     {
         _logger.LogInformation("SlashCommand:{userId}:{Method}:{params}",
@@ -137,7 +137,7 @@ public class MareModule : InteractionModuleBase
         }
     }
 
-    [SlashCommand("createsecondaryuid", "Creates a new Secret Key to be used for alts")]
+    //[SlashCommand("createsecondaryuid", "Creates a new Secret Key to be used for alts")]
     public async Task AddSecondary()
     {
         try
@@ -155,7 +155,7 @@ public class MareModule : InteractionModuleBase
         }
     }
 
-    [SlashCommand("setvanityuid", "Sets your Vanity UID.")]
+    //[SlashCommand("setvanityuid", "Sets your Vanity UID.")]
     public async Task SetVanityUid([Summary("vanity_uid", "Desired Vanity UID")] string vanityUid,
         [Summary("secondary_uid", "Will set the vanity UID for a secondary UID")] string? secondaryUid = null)
     {
@@ -181,7 +181,7 @@ public class MareModule : InteractionModuleBase
         }
     }
 
-    [SlashCommand("setsyncshellvanityid", "Sets a Vanity GID for a Syncshell")]
+    //[SlashCommand("setsyncshellvanityid", "Sets a Vanity GID for a Syncshell")]
     public async Task SetSyncshellVanityId(
         [Summary("syncshell_id", "Syncshell ID")] string syncshellId,
         [Summary("vanity_syncshell_id", "Desired Vanity Syncshell ID")] string vanityId)
@@ -284,7 +284,6 @@ public class MareModule : InteractionModuleBase
 
     }
 
-    // Loporrit -- Disable /recover command
     //[SlashCommand("recover", "Allows you to recover your account by generating a new secret key")]
     public async Task Recover([Summary("secondary_uid", "(Optional) Your secondary UID")] string? secondaryUid = null)
     {
@@ -320,7 +319,6 @@ public class MareModule : InteractionModuleBase
         }
     }
 
-    // Loporrit -- Disable /relink command
     //[SlashCommand("relink", "Allows you to link a new Discord account to an existing Mare account")]
     public async Task Relink()
     {
@@ -415,7 +413,7 @@ public class MareModule : InteractionModuleBase
         }
     }
 
-    [ModalInteraction("recover_modal:*")]
+    //[ModalInteraction("recover_modal:*")]
     public async Task RecoverModal(string? secondaryUid, LodestoneModal modal)
     {
         _logger.LogInformation("Modal:{userId}:{Method}",
@@ -438,7 +436,7 @@ public class MareModule : InteractionModuleBase
         }
     }
 
-    [ModalInteraction("register_modal")]
+    //[ModalInteraction("register_modal")]
     public async Task RegisterModal(LodestoneModal modal)
     {
         _logger.LogInformation("Modal:{userId}:{Method}",
@@ -459,7 +457,7 @@ public class MareModule : InteractionModuleBase
         }
     }
 
-    [ModalInteraction("relink_modal")]
+    //[ModalInteraction("relink_modal")]
     public async Task RelinkModal(LodestoneModal modal)
     {
         _logger.LogInformation("Modal:{userId}:{Method}",

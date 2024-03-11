@@ -200,7 +200,7 @@ internal class DiscordBot : IHostedService
         var guild = (await _discordClient.Rest.GetGuildsAsync()).First();
         await _interactionModule.RegisterCommandsToGuildAsync(guild.Id, true).ConfigureAwait(false);
 
-        _ = RemoveUsersNotInVanityRole();
+        //_ = RemoveUsersNotInVanityRole();
         _ = ProcessReportsQueue();
     }
 
