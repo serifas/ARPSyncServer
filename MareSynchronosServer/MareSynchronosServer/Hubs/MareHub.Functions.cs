@@ -23,6 +23,7 @@ public partial class MareHub
         var lodestone = await _dbContext.LodeStoneAuth.SingleOrDefaultAsync(a => a.User.UID == user.UID).ConfigureAwait(false);
         var groupPairs = await _dbContext.GroupPairs.Where(g => g.GroupUserUID == user.UID).ToListAsync().ConfigureAwait(false);
         var userProfileData = await _dbContext.UserProfileData.SingleOrDefaultAsync(u => u.UserUID == user.UID).ConfigureAwait(false);
+        var bannedEntries = await _dbContext.GroupBans.Where(u => u.BannedUserUID == user.UID).ToListAsync().ConfigureAwait(false);
 
         if (lodestone != null)
         {
@@ -55,6 +56,7 @@ public partial class MareHub
 
         _mareMetrics.IncCounter(MetricsAPI.CounterUsersRegisteredDeleted, 1);
 
+        _dbContext.GroupBans.RemoveRange(bannedEntries);
         _dbContext.ClientPairs.RemoveRange(otherPairData);
         _dbContext.Users.Remove(user);
         _dbContext.Auth.Remove(auth);

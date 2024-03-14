@@ -100,6 +100,10 @@ public static class SharedDbFunctions
             await dbContext.SaveChangesAsync().ConfigureAwait(false);
         }
 
+        var bannedinGroups = await dbContext.GroupBans.Where(u => u.BannedUserUID == user.UID).ToListAsync().ConfigureAwait(false);
+
+        dbContext.GroupBans.RemoveRange(bannedinGroups);
+
         _logger.LogInformation("User purged: {uid}", user.UID);
 
         dbContext.Auth.Remove(auth);
