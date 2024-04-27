@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net7.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <UserSecretsId>aspnet-MareSynchronosServer-BA82A12A-0B30-463C-801D-B7E81318CD50</UserSecretsId>
     <AssemblyVersion>1.1.0.0</AssemblyVersion>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -21,19 +21,19 @@
 
   <ItemGroup>
     <PackageReference Include="AspNetCoreRateLimit" Version="5.0.0" />
-    <PackageReference Include="Grpc.AspNetCore" Version="2.53.0" />
-    <PackageReference Include="Grpc.Net.Client" Version="2.53.0" />
-    <PackageReference Include="IDisposableAnalyzers" Version="4.0.6">
+    <PackageReference Include="Grpc.AspNetCore" Version="2.62.0" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.62.0" />
+    <PackageReference Include="IDisposableAnalyzers" Version="4.0.7">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Meziantou.Analyzer" Version="2.0.49">
+    <PackageReference Include="Meziantou.Analyzer" Version="2.0.149">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="7.0.0" />
-    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="6.30.0" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="8.0.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="7.5.1" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.4" />
   </ItemGroup>
 
   <ItemGroup>

@@ -205,6 +205,7 @@ public class Startup
         services.AddStackExchangeRedisExtensions<SystemTextJsonSerializer>(redisConfiguration);
 
         services.AddHealthChecks();
+        services.AddHttpLogging(e => e = new Microsoft.AspNetCore.HttpLogging.HttpLoggingOptions());
     }
 
     public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
