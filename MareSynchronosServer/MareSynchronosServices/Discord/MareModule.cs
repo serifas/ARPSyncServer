@@ -8,9 +8,8 @@ using Prometheus;
 using MareSynchronosShared.Models;
 using MareSynchronosShared.Utils;
 using MareSynchronosShared.Services;
-using Grpc.Net.ClientFactory;
-using MareSynchronosShared.Protos;
 using StackExchange.Redis;
+using MareSynchronos.API.Data.Enum;
 
 namespace MareSynchronosServices.Discord;
 
@@ -30,21 +29,19 @@ public class MareModule : InteractionModuleBase
     private readonly DiscordBotServices _botServices;
     private readonly IConfigurationService<ServerConfiguration> _mareClientConfigurationService;
     private readonly IConfigurationService<ServicesConfiguration> _mareServicesConfiguration;
-    private readonly GrpcClientFactory _grpcClientFactory;
     private readonly IConnectionMultiplexer _connectionMultiplexer;
     private Random random = new();
 
     public MareModule(ILogger<MareModule> logger, IServiceProvider services, DiscordBotServices botServices,
         IConfigurationService<ServerConfiguration> mareClientConfigurationService,
         IConfigurationService<ServicesConfiguration> mareServicesConfiguration,
-        GrpcClientFactory grpcClientFactory, IConnectionMultiplexer connectionMultiplexer)
+        IConnectionMultiplexer connectionMultiplexer)
     {
         _logger = logger;
         _services = services;
         _botServices = botServices;
         _mareClientConfigurationService = mareClientConfigurationService;
         _mareServicesConfiguration = mareServicesConfiguration;
-        _grpcClientFactory = grpcClientFactory;
         _connectionMultiplexer = connectionMultiplexer;
     }
 
@@ -352,7 +349,7 @@ public class MareModule : InteractionModuleBase
 
     [SlashCommand("message", "ADMIN ONLY: sends a message to clients")]
     public async Task SendMessageToClients([Summary("message", "Message to send")] string message,
-        [Summary("severity", "Severity of the message")] MareSynchronosShared.Protos.MessageType messageType = MareSynchronosShared.Protos.MessageType.Info,
+        [Summary("severity", "Severity of the message")] MessageSeverity messageType = MessageSeverity.Information,
         [Summary("uid", "User ID to the person to send the message to")] string? uid = null)
     {
         _logger.LogInformation("SlashCommand:{userId}:{Method}:{message}:{type}:{uid}", Context.Interaction.User.Id, nameof(SendMessageToClients), message, messageType, uid);
@@ -374,13 +371,10 @@ public class MareModule : InteractionModuleBase
 
         try
         {
-            var client = _grpcClientFactory.CreateClient<ClientMessageService.ClientMessageServiceClient>("MessageClient");
-            await client.SendClientMessageAsync(new ClientMessage()
-            {
-                Message = message,
-                Type = messageType,
-                Uid = uid ?? string.Empty
-            });
+            using HttpClient c = new HttpClient();
+            await c.PostAsJsonAsync(new Uri(_mareServicesConfiguration.GetValue<Uri>
+                (nameof(ServicesConfiguration.MainServerAddress)), "/msgc/sendMessage"), new ClientMessage(messageType, message, uid ?? string.Empty))
+                .ConfigureAwait(false);
 
             var discordChannelForMessages = _mareServicesConfiguration.GetValueOrDefault<ulong?>(nameof(ServicesConfiguration.DiscordChannelForMessages), null);
             if (uid == null && discordChannelForMessages != null)
@@ -390,9 +384,9 @@ public class MareModule : InteractionModuleBase
                 {
                     var embedColor = messageType switch
                     {
-                        MareSynchronosShared.Protos.MessageType.Info => Color.Blue,
-                        MareSynchronosShared.Protos.MessageType.Warning => new Color(255, 255, 0),
-                        MareSynchronosShared.Protos.MessageType.Error => Color.Red,
+                        MessageSeverity.Information => Color.Blue,
+                        MessageSeverity.Warning => new Color(255, 255, 0),
+                        MessageSeverity.Error => Color.Red,
                         _ => Color.Blue
                     };
 

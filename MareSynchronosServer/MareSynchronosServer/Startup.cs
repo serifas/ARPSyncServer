@@ -5,8 +5,6 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.Authorization;
 using AspNetCoreRateLimit;
 using MareSynchronosShared.Data;
-using MareSynchronosShared.Protos;
-using Grpc.Net.Client.Configuration;
 using MareSynchronosShared.Metrics;
 using MareSynchronosServer.Services;
 using MareSynchronosShared.Utils;
@@ -73,7 +71,7 @@ public class Startup
             a.FeatureProviders.Remove(a.FeatureProviders.OfType<ControllerFeatureProvider>().First());
             if (mareConfig.GetValue<Uri>(nameof(ServerConfiguration.MainServerAddress), defaultValue: null) == null)
             {
-                a.FeatureProviders.Add(new AllowedControllersFeatureProvider(typeof(MareServerConfigurationController), typeof(MareAuthBaseConfigurationController), typeof(JwtController)));
+                a.FeatureProviders.Add(new AllowedControllersFeatureProvider(typeof(MareServerConfigurationController), typeof(MareAuthBaseConfigurationController), typeof(JwtController), typeof(ClientMessageController)));
             }
             else
             {
@@ -288,8 +286,6 @@ public class Startup
         {
             services.AddSingleton<IConfigurationService<ServerConfiguration>, MareConfigurationServiceServer<ServerConfiguration>>();
             services.AddSingleton<IConfigurationService<MareConfigurationAuthBase>, MareConfigurationServiceServer<MareConfigurationAuthBase>>();
-
-            services.AddGrpc();
         }
     }
 
@@ -320,11 +316,6 @@ public class Startup
                 options.TransportMaxBufferSize = 5242880;
                 options.Transports = HttpTransportType.WebSockets | HttpTransportType.ServerSentEvents | HttpTransportType.LongPolling;
             });
-
-            if (config.IsMain)
-            {
-                endpoints.MapGrpcService<GrpcClientMessageService>().AllowAnonymous();
-            }
 
             endpoints.MapHealthChecks("/health").AllowAnonymous();
             endpoints.MapControllers();
