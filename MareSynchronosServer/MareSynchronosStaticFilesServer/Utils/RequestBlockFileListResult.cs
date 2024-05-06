@@ -1,5 +1,6 @@
 using MareSynchronosShared.Metrics;
 using MareSynchronosShared.Services;
+using MareSynchronosShared.Utils.Configuration;
 using MareSynchronosStaticFilesServer.Services;
 using Microsoft.AspNetCore.Mvc;
 using System.Globalization;

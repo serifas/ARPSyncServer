@@ -1,8 +1,8 @@
 ﻿using System.Text;
 
-namespace MareSynchronosShared.Utils;
+namespace MareSynchronosShared.Utils.Configuration;
 
-public class ServerConfiguration : MareConfigurationAuthBase
+public class ServerConfiguration : MareConfigurationBase
 {
     [RemoteConfiguration]
     public Uri CdnFullUrl { get; set; } = null;
@@ -24,9 +24,6 @@ public class ServerConfiguration : MareConfigurationAuthBase
 
     [RemoteConfiguration]
     public int PurgeUnusedAccountsPeriodInDays { get; set; } = 14;
-    public string GeoIPDbCityFile { get; set; } = string.Empty;
-
-    public int RedisPool { get; set; } = 50;
 
     public override string ToString()
     {
@@ -34,14 +31,12 @@ public class ServerConfiguration : MareConfigurationAuthBase
         sb.AppendLine(base.ToString());
         sb.AppendLine($"{nameof(CdnFullUrl)} => {CdnFullUrl}");
         sb.AppendLine($"{nameof(RedisConnectionString)} => {RedisConnectionString}");
-        sb.AppendLine($"{nameof(RedisPool)} => {RedisPool}");
         sb.AppendLine($"{nameof(ExpectedClientVersion)} => {ExpectedClientVersion}");
         sb.AppendLine($"{nameof(MaxExistingGroupsByUser)} => {MaxExistingGroupsByUser}");
         sb.AppendLine($"{nameof(MaxJoinedGroupsByUser)} => {MaxJoinedGroupsByUser}");
         sb.AppendLine($"{nameof(MaxGroupUserCount)} => {MaxGroupUserCount}");
         sb.AppendLine($"{nameof(PurgeUnusedAccounts)} => {PurgeUnusedAccounts}");
         sb.AppendLine($"{nameof(PurgeUnusedAccountsPeriodInDays)} => {PurgeUnusedAccountsPeriodInDays}");
-        sb.AppendLine($"{nameof(GeoIPDbCityFile)} => {GeoIPDbCityFile}");
         return sb.ToString();
     }
 }

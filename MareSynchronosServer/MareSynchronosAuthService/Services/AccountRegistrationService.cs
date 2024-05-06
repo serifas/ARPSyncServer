@@ -4,11 +4,12 @@ using MareSynchronosShared.Data;
 using MareSynchronosShared.Metrics;
 using MareSynchronosShared.Services;
 using MareSynchronosShared.Utils;
+using MareSynchronosShared.Utils.Configuration;
 using Microsoft.EntityFrameworkCore;
 using System.Text.RegularExpressions;
 using MareSynchronosShared.Models;
 
-namespace MareSynchronosServer.Authentication;
+namespace MareSynchronosAuthService.Services;
 
 internal record IpRegistrationCount
 {
@@ -27,14 +28,14 @@ public class AccountRegistrationService
     private readonly MareMetrics _metrics;
     private readonly MareDbContext _mareDbContext;
     private readonly IServiceScopeFactory _serviceScopeFactory;
-    private readonly IConfigurationService<MareConfigurationAuthBase> _configurationService;
+    private readonly IConfigurationService<AuthServiceConfiguration> _configurationService;
     private readonly ILogger<AccountRegistrationService> _logger;
     private readonly ConcurrentDictionary<string, IpRegistrationCount> _registrationsPerIp = new(StringComparer.Ordinal);
 
     private Regex _registrationUserAgentRegex = new Regex(@"^MareSynchronos/", RegexOptions.Compiled);
 
     public AccountRegistrationService(MareMetrics metrics, MareDbContext mareDbContext,
-		IServiceScopeFactory serviceScopeFactory, IConfigurationService<MareConfigurationAuthBase> configuration,
+		IServiceScopeFactory serviceScopeFactory, IConfigurationService<AuthServiceConfiguration> configuration,
 		ILogger<AccountRegistrationService> logger)
     {
         _mareDbContext = mareDbContext;
@@ -55,7 +56,7 @@ public class AccountRegistrationService
         }
 
         if (_registrationsPerIp.TryGetValue(ip, out var registrationCount)
-            && registrationCount.Count >= _configurationService.GetValueOrDefault(nameof(MareConfigurationAuthBase.RegisterIpLimit), 3))
+            && registrationCount.Count >= _configurationService.GetValueOrDefault(nameof(AuthServiceConfiguration.RegisterIpLimit), 3))
         {
             _logger.LogWarning("Rejecting {ip} for registration spam", ip);
 
@@ -68,7 +69,7 @@ public class AccountRegistrationService
 
                 registrationCount.ResetTask = Task.Run(async () =>
                 {
-                    await Task.Delay(TimeSpan.FromMinutes(_configurationService.GetValueOrDefault(nameof(MareConfigurationAuthBase.RegisterIpDurationInMinutes), 10))).ConfigureAwait(false);
+                    await Task.Delay(TimeSpan.FromMinutes(_configurationService.GetValueOrDefault(nameof(AuthServiceConfiguration.RegisterIpDurationInMinutes), 10))).ConfigureAwait(false);
 
                 }).ContinueWith((t) =>
                 {
@@ -110,7 +111,7 @@ public class AccountRegistrationService
 		await _mareDbContext.SaveChangesAsync().ConfigureAwait(false);
 
         _logger.LogInformation("User registered: {userUID} from IP {ip}", user.UID, ip);
-        _metrics.IncCounter(MetricsAPI.CounterAuthenticationRequests);
+        _metrics.IncCounter(MetricsAPI.CounterAccountsCreated);
 
         reply.Success = true;
         reply.UID = user.UID;
@@ -123,7 +124,7 @@ public class AccountRegistrationService
 
     private void RecordIpRegistration(string ip)
     {
-        var whitelisted = _configurationService.GetValueOrDefault(nameof(MareConfigurationAuthBase.WhitelistedIps), new List<string>());
+        var whitelisted = _configurationService.GetValueOrDefault(nameof(AuthServiceConfiguration.WhitelistedIps), new List<string>());
         if (!whitelisted.Any(w => ip.Contains(w, StringComparison.OrdinalIgnoreCase)))
         {
             if (_registrationsPerIp.TryGetValue(ip, out var count))
@@ -141,7 +142,7 @@ public class AccountRegistrationService
 
                 count.ResetTask = Task.Run(async () =>
                 {
-                    await Task.Delay(TimeSpan.FromMinutes(_configurationService.GetValueOrDefault(nameof(MareConfigurationAuthBase.RegisterIpDurationInMinutes), 10))).ConfigureAwait(false);
+                    await Task.Delay(TimeSpan.FromMinutes(_configurationService.GetValueOrDefault(nameof(AuthServiceConfiguration.RegisterIpDurationInMinutes), 10))).ConfigureAwait(false);
 
                 }).ContinueWith((t) =>
                 {

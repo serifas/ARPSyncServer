@@ -11,6 +11,7 @@ using MareSynchronosShared.Services;
 using StackExchange.Redis;
 using MareSynchronos.API.Data.Enum;
 using System.Net.Http.Headers;
+using MareSynchronosShared.Utils.Configuration;
 
 namespace MareSynchronosServices.Discord;
 

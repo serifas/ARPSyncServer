@@ -1,4 +1,5 @@
 using MareSynchronosShared.Services;
+using MareSynchronosShared.Utils.Configuration;
 using MareSynchronosStaticFilesServer.Utils;
 using System.Collections.Concurrent;
 

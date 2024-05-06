@@ -1,14 +1,14 @@
 ﻿using MareSynchronosShared.Utils;
 using System.Text;
 
-namespace MareSynchronosStaticFilesServer;
+namespace MareSynchronosShared.Utils.Configuration;
 
 public class StaticFilesServerConfiguration : MareConfigurationBase
 {
     public bool IsDistributionNode { get; set; } = false;
     public bool NotifyMainServerDirectly { get; set; } = false;
-    public Uri? MainFileServerAddress { get; set; } = null;
-    public Uri? DistributionFileServerAddress { get; set; } = null;
+    public Uri MainFileServerAddress { get; set; } = null;
+    public Uri DistributionFileServerAddress { get; set; } = null;
     public bool DistributionFileServerForceHTTP2 { get; set; } = false;
     public int ForcedDeletionOfFilesAfterHours { get; set; } = -1;
     public double CacheSizeHardLimitInGiB { get; set; } = -1;
@@ -21,7 +21,7 @@ public class StaticFilesServerConfiguration : MareConfigurationBase
     public int DownloadQueueClearLimit { get; set; } = 15000;
     public int CleanupCheckInMinutes { get; set; } = 15;
     public bool UseColdStorage { get; set; } = false;
-    public string? ColdStorageDirectory { get; set; } = null;
+    public string ColdStorageDirectory { get; set; } = null;
     public double ColdStorageSizeHardLimitInGiB { get; set; } = -1;
     public int ColdStorageMinimumFileRetentionPeriodInDays { get; set; } = 30;
     public int ColdStorageUnusedFileRetentionPeriodInDays { get; set; } = 30;
