@@ -10,6 +10,7 @@ using MareSynchronosShared.Utils;
 using MareSynchronosShared.Services;
 using StackExchange.Redis;
 using MareSynchronos.API.Data.Enum;
+using System.Net.Http.Headers;
 
 namespace MareSynchronosServices.Discord;
 
@@ -30,12 +31,13 @@ public class MareModule : InteractionModuleBase
     private readonly IConfigurationService<ServerConfiguration> _mareClientConfigurationService;
     private readonly IConfigurationService<ServicesConfiguration> _mareServicesConfiguration;
     private readonly IConnectionMultiplexer _connectionMultiplexer;
+    private readonly ServerTokenGenerator _serverTokenGenerator;
     private Random random = new();
 
     public MareModule(ILogger<MareModule> logger, IServiceProvider services, DiscordBotServices botServices,
         IConfigurationService<ServerConfiguration> mareClientConfigurationService,
         IConfigurationService<ServicesConfiguration> mareServicesConfiguration,
-        IConnectionMultiplexer connectionMultiplexer)
+        IConnectionMultiplexer connectionMultiplexer, ServerTokenGenerator serverTokenGenerator)
     {
         _logger = logger;
         _services = services;
@@ -43,6 +45,7 @@ public class MareModule : InteractionModuleBase
         _mareClientConfigurationService = mareClientConfigurationService;
         _mareServicesConfiguration = mareServicesConfiguration;
         _connectionMultiplexer = connectionMultiplexer;
+        _serverTokenGenerator = serverTokenGenerator;
     }
 
     //[SlashCommand("register", "Starts the registration process")]
@@ -372,6 +375,7 @@ public class MareModule : InteractionModuleBase
         try
         {
             using HttpClient c = new HttpClient();
+            c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _serverTokenGenerator.Token);
             await c.PostAsJsonAsync(new Uri(_mareServicesConfiguration.GetValue<Uri>
                 (nameof(ServicesConfiguration.MainServerAddress)), "/msgc/sendMessage"), new ClientMessage(messageType, message, uid ?? string.Empty))
                 .ConfigureAwait(false);

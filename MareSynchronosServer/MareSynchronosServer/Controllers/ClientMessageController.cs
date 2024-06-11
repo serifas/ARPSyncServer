@@ -23,7 +23,7 @@ public class ClientMessageController : Controller
 
     [Route("sendMessage")]
     [HttpPost]
-    public async Task<IActionResult> SendMessage(ClientMessage msg)
+    public async Task<IActionResult> SendMessage([FromBody] ClientMessage msg)
     {
         bool hasUid = !string.IsNullOrEmpty(msg.UID);
 
