@@ -55,9 +55,6 @@ public sealed class CachedFileProvider : IDisposable
     {
         var destinationFilePath = FilePathUtil.GetFilePath(_hotStoragePath, hash);
 
-        // first check cold storage
-        if (TryCopyFromColdStorage(hash, destinationFilePath)) return;
-
         // if cold storage is not configured or file not found or error is present try to download file from remote
         var downloadUrl = MareFiles.DistributionGetFullPath(_remoteCacheSourceUri, hash);
         _logger.LogInformation("Did not find {hash}, downloading from {server}", hash, downloadUrl);
@@ -134,10 +131,10 @@ public sealed class CachedFileProvider : IDisposable
     public async Task DownloadFileWhenRequired(string hash)
     {
         var fi = FilePathUtil.GetFileInfoForHash(_hotStoragePath, hash);
-        if (fi == null && IsMainServer)
+        if (fi == null)
         {
-            TryCopyFromColdStorage(hash, FilePathUtil.GetFilePath(_hotStoragePath, hash));
-            return;
+            if (TryCopyFromColdStorage(hash, FilePathUtil.GetFilePath(_hotStoragePath, hash)))
+                return;
         }
 
         await _downloadSemaphore.WaitAsync().ConfigureAwait(false);
