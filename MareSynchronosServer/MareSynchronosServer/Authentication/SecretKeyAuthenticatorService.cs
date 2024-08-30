@@ -10,18 +10,18 @@ namespace MareSynchronosServer.Authentication;
 public class SecretKeyAuthenticatorService
 {
     private readonly MareMetrics _metrics;
-    private readonly IDbContextFactory<MareDbContext> _dbContextFactory;
+    private readonly MareDbContext _mareDbContext;
     private readonly IConfigurationService<MareConfigurationAuthBase> _configurationService;
     private readonly ILogger<SecretKeyAuthenticatorService> _logger;
     private readonly ConcurrentDictionary<string, SecretKeyFailedAuthorization> _failedAuthorizations = new(StringComparer.Ordinal);
 
-    public SecretKeyAuthenticatorService(MareMetrics metrics, IDbContextFactory<MareDbContext> dbContextFactory,
+    public SecretKeyAuthenticatorService(MareMetrics metrics, MareDbContext mareDbContext,
         IConfigurationService<MareConfigurationAuthBase> configuration, ILogger<SecretKeyAuthenticatorService> logger)
     {
         _logger = logger;
         _configurationService = configuration;
         _metrics = metrics;
-        _dbContextFactory = dbContextFactory;
+        _mareDbContext = mareDbContext;
     }
 
     public async Task<SecretKeyAuthReply> AuthorizeAsync(string ip, string hashedSecretKey)
@@ -47,8 +47,7 @@ public class SecretKeyAuthenticatorService
             return new(Success: false, Uid: null, TempBan: true, Alias: null, Permaban: false);
         }
 
-        using var context = await _dbContextFactory.CreateDbContextAsync().ConfigureAwait(false);
-        var authReply = await context.Auth.Include(a => a.User).AsNoTracking()
+        var authReply = await _mareDbContext.Auth.Include(a => a.User).AsNoTracking()
             .SingleOrDefaultAsync(u => u.HashedKey == hashedSecretKey).ConfigureAwait(false);
 
         SecretKeyAuthReply reply = new(authReply != null, authReply?.UserUID, authReply?.User?.Alias ?? string.Empty, TempBan: false, authReply?.IsBanned ?? false);
