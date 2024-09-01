@@ -37,11 +37,6 @@ public partial class MareHub
             _dbContext.Remove(userProfileData);
         }
 
-        while (_dbContext.Files.Any(f => f.Uploader == user))
-        {
-            await Task.Delay(1000).ConfigureAwait(false);
-        }
-
         _dbContext.ClientPairs.RemoveRange(ownPairData);
         await _dbContext.SaveChangesAsync().ConfigureAwait(false);
         var otherPairData = await _dbContext.ClientPairs.Include(u => u.User)

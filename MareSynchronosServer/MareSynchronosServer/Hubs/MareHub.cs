@@ -120,9 +120,6 @@ public partial class MareHub : Hub<IMareHub>, IMareHub
             await RemoveUserFromRedis().ConfigureAwait(false);
 
             await SendOfflineToAllPairedUsers().ConfigureAwait(false);
-
-            _dbContext.RemoveRange(_dbContext.Files.Where(f => !f.Uploaded && f.UploaderUID == UserUID));
-            await _dbContext.SaveChangesAsync().ConfigureAwait(false);
         }
         catch { }
 

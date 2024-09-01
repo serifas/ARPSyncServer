@@ -53,38 +53,6 @@ public class ServerFilesController : ControllerBase
     [HttpPost(MareFiles.ServerFiles_DeleteAll)]
     public async Task<IActionResult> FilesDeleteAll()
     {
-        var ownFiles = await _mareDbContext.Files.Where(f => f.Uploaded && f.Uploader.UID == MareUser).ToListAsync().ConfigureAwait(false);
-
-        foreach (var dbFile in ownFiles)
-        {
-            var fi = FilePathUtil.GetFileInfoForHash(_basePath, dbFile.Hash);
-            if (fi != null)
-            {
-                _metricsClient.DecGauge(MetricsAPI.GaugeFilesTotal, fi == null ? 0 : 1);
-                _metricsClient.DecGauge(MetricsAPI.GaugeFilesTotalSize, fi?.Length ?? 0);
-
-                fi?.Delete();
-            }
-        }
-
-        if (!_coldBasePath.IsNullOrEmpty())
-        {
-            foreach (var dbFile in ownFiles)
-            {
-                var fi = FilePathUtil.GetFileInfoForHash(_coldBasePath, dbFile.Hash);
-                if (fi != null)
-                {
-                    _metricsClient.DecGauge(MetricsAPI.GaugeFilesTotalColdStorage, fi == null ? 0 : 1);
-                    _metricsClient.DecGauge(MetricsAPI.GaugeFilesTotalSizeColdStorage, fi?.Length ?? 0);
-
-                    fi?.Delete();
-                }
-            }
-        }
-
-        _mareDbContext.Files.RemoveRange(ownFiles);
-        await _mareDbContext.SaveChangesAsync().ConfigureAwait(false);
-
         return Ok();
     }
 

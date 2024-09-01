@@ -25,10 +25,8 @@ public class Program
                 context.SaveChanges();
 
                 // clean up residuals
-                var looseFiles = context.Files.Where(f => f.Uploaded == false);
                 var unfinishedRegistrations = context.LodeStoneAuth.Where(c => c.StartedAt != null);
                 context.RemoveRange(unfinishedRegistrations);
-                context.RemoveRange(looseFiles);
                 context.SaveChanges();
 
                 logger.LogInformation(options.ToString());
