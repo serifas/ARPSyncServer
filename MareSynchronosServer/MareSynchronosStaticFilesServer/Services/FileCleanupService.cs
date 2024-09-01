@@ -14,7 +14,34 @@ public class FileCleanupService : IHostedService
     private readonly ILogger<FileCleanupService> _logger;
     private readonly MareMetrics _metrics;
     private readonly IServiceProvider _services;
+
+    private readonly string _hotStoragePath;
+    private readonly string _coldStoragePath;
+    private readonly bool _isMain = false;
+    private readonly bool _isDistributionNode = false;
+    private readonly bool _useColdStorage = false;
+
     private CancellationTokenSource _cleanupCts;
+
+    private int HotStorageRetention => _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.UnusedFileRetentionPeriodInDays), 14);
+    private double HotStorageSize => _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.CacheSizeHardLimitInGiB), -1.0);
+
+    private int ColdStorageRetention => _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.ColdStorageUnusedFileRetentionPeriodInDays), 60);
+    private double ColdStorageSize => _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.ColdStorageSizeHardLimitInGiB), -1.0);
+
+    private int ForcedDeletionAfterHours => _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.ForcedDeletionOfFilesAfterHours), -1);
+    private int CleanupCheckMinutes => _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.CleanupCheckInMinutes), 15);
+
+    private List<FileInfo> GetAllHotFiles() => new DirectoryInfo(_hotStoragePath).GetFiles("*", SearchOption.AllDirectories)
+                .Where(f => f != null && f.Name.Length == 40)
+                .OrderBy(f => f.LastAccessTimeUtc).ToList();
+
+    private List<FileInfo> GetAllColdFiles() => new DirectoryInfo(_coldStoragePath).GetFiles("*", SearchOption.AllDirectories)
+                .Where(f => f != null && f.Name.Length == 40)
+                .OrderBy(f => f.LastAccessTimeUtc).ToList();
+
+    private List<FileInfo> GetTempFiles() => new DirectoryInfo(_useColdStorage ? _coldStoragePath : _hotStoragePath).GetFiles("*", SearchOption.AllDirectories)
+                .Where(f => f != null && (f.Name.EndsWith(".dl", StringComparison.InvariantCultureIgnoreCase) || f.Name.EndsWith(".tmp", StringComparison.InvariantCultureIgnoreCase))).ToList();
 
     public FileCleanupService(MareMetrics metrics, ILogger<FileCleanupService> logger,
         IServiceProvider services, IConfigurationService<StaticFilesServerConfiguration> configuration)
@@ -23,6 +50,11 @@ public class FileCleanupService : IHostedService
         _logger = logger;
         _services = services;
         _configuration = configuration;
+        _useColdStorage = _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.UseColdStorage), false);
+        _hotStoragePath = configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.CacheDirectory));
+        _coldStoragePath = configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.ColdStorageDirectory));
+        _isDistributionNode = configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.IsDistributionNode), false);
+        _isMain = configuration.GetValue<Uri>(nameof(StaticFilesServerConfiguration.MainFileServerAddress)) == null && _isDistributionNode;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -45,18 +77,18 @@ public class FileCleanupService : IHostedService
         return Task.CompletedTask;
     }
 
-    private List<FileInfo> CleanUpFilesBeyondSizeLimit(List<FileInfo> files, double sizeLimit, bool deleteFromDb, MareDbContext dbContext, CancellationToken ct)
+    private List<string> CleanUpFilesBeyondSizeLimit(List<FileInfo> files, double sizeLimit, CancellationToken ct)
     {
+        var removedFiles = new List<string>();
         if (sizeLimit <= 0)
         {
-            return [];
+            return removedFiles;
         }
 
         try
         {
             _logger.LogInformation("Cleaning up files beyond the cache size limit of {cacheSizeLimit} GiB", sizeLimit);
-            var allLocalFiles = files
-                .OrderBy(f => f.LastAccessTimeUtc).ToList();
+            var allLocalFiles = files;
             var totalCacheSizeInBytes = allLocalFiles.Sum(s => s.Length);
             long cacheSizeLimitInBytes = (long)ByteSize.FromGibiBytes(sizeLimit).Bytes;
             while (totalCacheSizeInBytes > cacheSizeLimitInBytes && allLocalFiles.Count != 0 && !ct.IsCancellationRequested)
@@ -66,30 +98,24 @@ public class FileCleanupService : IHostedService
                 totalCacheSizeInBytes -= oldestFile.Length;
                 _logger.LogInformation("Deleting {oldestFile} with size {size}MiB", oldestFile.FullName, ByteSize.FromBytes(oldestFile.Length).MebiBytes);
                 oldestFile.Delete();
-                FileCache f = new() { Hash = oldestFile.Name.ToUpperInvariant() };
-                if (deleteFromDb)
-                    dbContext.Entry(f).State = EntityState.Deleted;
+                removedFiles.Add(oldestFile.Name);
             }
-
-            return allLocalFiles;
+            files.RemoveAll(f => removedFiles.Contains(f.Name, StringComparer.InvariantCultureIgnoreCase));
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error during cache size limit cleanup");
         }
 
-        return [];
+        return removedFiles;
     }
 
-    private List<FileInfo> CleanUpOrphanedFiles(List<FileCache> allFiles, List<FileInfo> allPhysicalFiles, CancellationToken ct)
+    private void CleanUpOrphanedFiles(HashSet<string> allDbFileHashes, List<FileInfo> allPhysicalFiles, CancellationToken ct)
     {
-        var allFilesHashes = new HashSet<string>(allFiles.Select(a => a.Hash.ToUpperInvariant()), StringComparer.Ordinal);
         foreach (var file in allPhysicalFiles.ToList())
         {
-            if (!allFilesHashes.Contains(file.Name.ToUpperInvariant()))
+            if (!allDbFileHashes.Contains(file.Name.ToUpperInvariant()))
             {
-                _metrics.DecGauge(MetricsAPI.GaugeFilesTotalSize, file.Length);
-                _metrics.DecGauge(MetricsAPI.GaugeFilesTotal);
                 file.Delete();
                 _logger.LogInformation("File not in DB, deleting: {fileName}", file.Name);
                 allPhysicalFiles.Remove(file);
@@ -97,13 +123,11 @@ public class FileCleanupService : IHostedService
 
             ct.ThrowIfCancellationRequested();
         }
-
-        return allPhysicalFiles;
     }
 
-    private async Task<List<FileInfo>> CleanUpOutdatedFiles(string dir, List<FileInfo> allFilesInDir, int unusedRetention, int forcedDeletionAfterHours,
-        bool deleteFromDb, MareDbContext dbContext, CancellationToken ct)
+    private List<string> CleanUpOutdatedFiles(List<FileInfo> files, int unusedRetention, int forcedDeletionAfterHours, CancellationToken ct)
     {
+        var removedFiles = new List<string>();
         try
         {
             _logger.LogInformation("Cleaning up files older than {filesOlderThanDays} days", unusedRetention);
@@ -112,37 +136,42 @@ public class FileCleanupService : IHostedService
                 _logger.LogInformation("Cleaning up files written to longer than {hours}h ago", forcedDeletionAfterHours);
             }
 
-            // clean up files in DB but not on disk or last access is expired
-            var prevTime = DateTime.Now.Subtract(TimeSpan.FromDays(unusedRetention));
-            var prevTimeForcedDeletion = DateTime.Now.Subtract(TimeSpan.FromHours(forcedDeletionAfterHours));
-            List<FileCache> allDbFiles = await dbContext.Files.ToListAsync(ct).ConfigureAwait(false);
-            List<string> removedFileHashes;
+            var lastAccessCutoffTime = DateTime.Now.Subtract(TimeSpan.FromDays(unusedRetention));
+            var forcedDeletionCutoffTime = DateTime.Now.Subtract(TimeSpan.FromHours(forcedDeletionAfterHours));
 
-            if (!deleteFromDb)
+            foreach (var file in files)
             {
-                removedFileHashes = CleanupViaFiles(allFilesInDir, forcedDeletionAfterHours, prevTime, prevTimeForcedDeletion, ct);
-            }
-            else
-            {
-                removedFileHashes = await CleanupViaDb(dir, forcedDeletionAfterHours, dbContext, prevTime, prevTimeForcedDeletion, allDbFiles, ct).ConfigureAwait(false);
-            }
+                if (file.LastAccessTime < lastAccessCutoffTime)
+                {
+                    _logger.LogInformation("File outdated: {fileName}, {fileSize}MiB", file.Name, ByteSize.FromBytes(file.Length).MebiBytes);
+                    file.Delete();
+                    removedFiles.Add(file.Name);
+                }
+                else if (forcedDeletionAfterHours > 0 && file.LastWriteTime < forcedDeletionCutoffTime)
+                {
+                    _logger.LogInformation("File forcefully deleted: {fileName}, {fileSize}MiB", file.Name, ByteSize.FromBytes(file.Length).MebiBytes);
+                    file.Delete();
+                    removedFiles.Add(file.Name);
+                }
 
-            // clean up files that are on disk but not in DB anymore
-            return CleanUpOrphanedFiles(allDbFiles, allFilesInDir.Where(c => !removedFileHashes.Contains(c.Name, StringComparer.OrdinalIgnoreCase)).ToList(), ct);
+                ct.ThrowIfCancellationRequested();
+            }
+            files.RemoveAll(f => removedFiles.Contains(f.Name, StringComparer.InvariantCultureIgnoreCase));
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error during file cleanup of old files");
         }
 
-        return [];
+        return removedFiles;
     }
 
-    private void CleanUpStuckUploads(MareDbContext dbContext)
+    private void CleanUpTempFiles()
     {
         var pastTime = DateTime.UtcNow.Subtract(TimeSpan.FromMinutes(20));
-        var stuckUploads = dbContext.Files.Where(f => !f.Uploaded && f.UploadDate < pastTime);
-        dbContext.Files.RemoveRange(stuckUploads);
+        var tempFiles = GetTempFiles();
+        foreach (var tempFile in tempFiles.Where(f => f.LastWriteTimeUtc < pastTime))
+            tempFile.Delete();
     }
 
     private async Task CleanUpTask(CancellationToken ct)
@@ -152,61 +181,87 @@ public class FileCleanupService : IHostedService
             try
             {
                 using var scope = _services.CreateScope();
-                using var dbContext = scope.ServiceProvider.GetService<MareDbContext>()!;
+                using var dbContext = _isMain ? scope.ServiceProvider.GetService<MareDbContext>()! : null;
 
-                bool useColdStorage = _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.UseColdStorage), false);
+                HashSet<string> allDbFileHashes = null;
 
-                if (useColdStorage)
+                // Database operations only performed on main server
+                if (_isMain)
                 {
-                    var coldStorageDir = _configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.ColdStorageDirectory));
-
-                    DirectoryInfo dirColdStorage = new(coldStorageDir);
-                    var allFilesInColdStorageDir = dirColdStorage.GetFiles("*", SearchOption.AllDirectories).ToList();
-
-                    var coldStorageRetention = _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.ColdStorageUnusedFileRetentionPeriodInDays), 60);
-                    var coldStorageSize = _configuration.GetValueOrDefault<double>(nameof(StaticFilesServerConfiguration.ColdStorageSizeHardLimitInGiB), -1);
-
-                    // clean up cold storage
-                    var remainingColdFiles = await CleanUpOutdatedFiles(coldStorageDir, allFilesInColdStorageDir, coldStorageRetention, forcedDeletionAfterHours: -1,
-                        deleteFromDb: true, dbContext: dbContext,
-                        ct: ct).ConfigureAwait(false);
-                    var finalRemainingColdFiles = CleanUpFilesBeyondSizeLimit(remainingColdFiles, coldStorageSize,
-                        deleteFromDb: true, dbContext: dbContext,
-                        ct: ct);
-
-                    _metrics.SetGaugeTo(MetricsAPI.GaugeFilesTotalSizeColdStorage, finalRemainingColdFiles.Sum(f => f.Length));
-                    _metrics.SetGaugeTo(MetricsAPI.GaugeFilesTotalColdStorage, finalRemainingColdFiles.Count);
+                    var allDbFiles = await dbContext.Files.ToListAsync(ct).ConfigureAwait(false);
+                    allDbFileHashes = new HashSet<string>(allDbFiles.Select(a => a.Hash.ToUpperInvariant()), StringComparer.Ordinal);
                 }
 
-                var hotStorageDir = _configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.CacheDirectory));
-                DirectoryInfo dirHotStorage = new(hotStorageDir);
-                var allFilesInHotStorage = dirHotStorage.GetFiles("*", SearchOption.AllDirectories).ToList();
+                if (_useColdStorage)
+                {
+                    var coldFiles = GetAllColdFiles();
+                    var removedColdFiles = new List<string>();
 
-                var unusedRetention = _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.UnusedFileRetentionPeriodInDays), 14);
-                var forcedDeletionAfterHours = _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.ForcedDeletionOfFilesAfterHours), -1);
-                var sizeLimit = _configuration.GetValueOrDefault<double>(nameof(StaticFilesServerConfiguration.CacheSizeHardLimitInGiB), -1);
+                    removedColdFiles.AddRange(
+                        CleanUpOutdatedFiles(coldFiles, ColdStorageRetention, ForcedDeletionAfterHours, ct)
+                    );
+                    removedColdFiles.AddRange(
+                        CleanUpFilesBeyondSizeLimit(coldFiles, ColdStorageSize, ct)
+                    );
 
-                var remainingHotFiles = await CleanUpOutdatedFiles(hotStorageDir, allFilesInHotStorage, unusedRetention, forcedDeletionAfterHours,
-                    deleteFromDb: !useColdStorage, dbContext: dbContext,
-                    ct: ct).ConfigureAwait(false);
+                    // Remove cold storage files are deleted from the database, if we are the main file server
+                    if (_isMain)
+                    {
+                        dbContext.Files.RemoveRange(
+                            dbContext.Files.Where(f => removedColdFiles.Contains(f.Hash))
+                        );
+                        allDbFileHashes.ExceptWith(removedColdFiles);
+                        CleanUpOrphanedFiles(allDbFileHashes, coldFiles, ct);
+                    }
 
-                var finalRemainingHotFiles = CleanUpFilesBeyondSizeLimit(remainingHotFiles, sizeLimit,
-                    deleteFromDb: !useColdStorage, dbContext: dbContext,
-                    ct: ct);
+                    // Remove hot copies of files now that the authoritative copy is gone
+                    foreach (var removedFile in removedColdFiles)
+                    {
+                        var hotFile = FilePathUtil.GetFileInfoForHash(_hotStoragePath, removedFile);
+                        hotFile?.Delete();
+                    }
 
-                CleanUpStuckUploads(dbContext);
+                    _metrics.SetGaugeTo(MetricsAPI.GaugeFilesTotalSizeColdStorage, coldFiles.Sum(f => { try { return f.Length; } catch { return 0; } }));
+                    _metrics.SetGaugeTo(MetricsAPI.GaugeFilesTotalColdStorage, coldFiles.Count);
+                }
 
-                await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+                var hotFiles = GetAllHotFiles();
+                var removedHotFiles = new List<string>();
 
-                _metrics.SetGaugeTo(MetricsAPI.GaugeFilesTotalSize, finalRemainingHotFiles.Sum(f => { try { return f.Length; } catch { return 0; } }));
-                _metrics.SetGaugeTo(MetricsAPI.GaugeFilesTotal, finalRemainingHotFiles.Count);
+                removedHotFiles.AddRange(
+                    CleanUpOutdatedFiles(hotFiles, HotStorageRetention, forcedDeletionAfterHours: _useColdStorage ? ForcedDeletionAfterHours : -1, ct)
+                );
+                removedHotFiles.AddRange(
+                    CleanUpFilesBeyondSizeLimit(hotFiles, HotStorageSize, ct)
+                );
+
+                if (_isMain)
+                {
+                    // If cold storage is not active, then "hot" files are deleted from the database instead
+                    if (!_useColdStorage)
+                    {
+                        dbContext.Files.RemoveRange(
+                            dbContext.Files.Where(f => removedHotFiles.Contains(f.Hash))
+                        );
+                        allDbFileHashes.ExceptWith(removedHotFiles);
+                    }
+
+                    CleanUpOrphanedFiles(allDbFileHashes, hotFiles, ct);
+
+                    await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+                }
+
+                _metrics.SetGaugeTo(MetricsAPI.GaugeFilesTotalSize, hotFiles.Sum(f => { try { return f.Length; } catch { return 0; } }));
+                _metrics.SetGaugeTo(MetricsAPI.GaugeFilesTotal, hotFiles.Count);
+
+                CleanUpTempFiles();
             }
             catch (Exception e)
             {
                 _logger.LogError(e, "Error during cleanup task");
             }
 
-            var cleanupCheckMinutes = _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.CleanupCheckInMinutes), 15);
+            var cleanupCheckMinutes = CleanupCheckMinutes;
             var now = DateTime.Now;
             TimeOnly currentTime = new(now.Hour, now.Minute, now.Second);
             TimeOnly futureTime = new(now.Hour, now.Minute - now.Minute % cleanupCheckMinutes, 0);
@@ -216,109 +271,18 @@ public class FileCleanupService : IHostedService
             await Task.Delay(span, ct).ConfigureAwait(false);
         }
     }
-    private async Task<List<string>> CleanupViaDb(string dir, int forcedDeletionAfterHours,
-        MareDbContext dbContext, DateTime lastAccessCutoffTime, DateTime forcedDeletionCutoffTime, List<FileCache> allDbFiles, CancellationToken ct)
-    {
-        int fileCounter = 0;
-        List<string> removedFileHashes = new();
-        foreach (var fileCache in allDbFiles.Where(f => f.Uploaded))
-        {
-            bool deleteCurrentFile = false;
-            var file = FilePathUtil.GetFileInfoForHash(dir, fileCache.Hash);
-            if (file == null)
-            {
-                _logger.LogInformation("File does not exist anymore: {fileName}", fileCache.Hash);
-                deleteCurrentFile = true;
-            }
-            else if (file != null && file.LastAccessTime < lastAccessCutoffTime)
-            {
-                _logger.LogInformation("File outdated: {fileName}, {fileSize}MiB", file.Name, ByteSize.FromBytes(file.Length).MebiBytes);
-                deleteCurrentFile = true;
-            }
-            else if (file != null && forcedDeletionAfterHours > 0 && file.LastWriteTime < forcedDeletionCutoffTime)
-            {
-                _logger.LogInformation("File forcefully deleted: {fileName}, {fileSize}MiB", file.Name, ByteSize.FromBytes(file.Length).MebiBytes);
-                deleteCurrentFile = true;
-            }
-
-            // do actual deletion of file and remove also from db if needed
-            if (deleteCurrentFile)
-            {
-                if (file != null) file.Delete();
-
-                removedFileHashes.Add(fileCache.Hash);
-
-                dbContext.Files.Remove(fileCache);
-            }
-
-            // only used if file in db has no size for whatever reason
-            if (!deleteCurrentFile && file != null && fileCache.Size == 0)
-            {
-                _logger.LogInformation("Setting File Size of " + fileCache.Hash + " to " + file.Length);
-                fileCache.Size = file.Length;
-                // commit every 1000 files to db
-                if (fileCounter % 1000 == 0)
-                    await dbContext.SaveChangesAsync().ConfigureAwait(false);
-            }
-
-            fileCounter++;
-
-            ct.ThrowIfCancellationRequested();
-        }
-
-        return removedFileHashes;
-    }
-
-    private List<string> CleanupViaFiles(List<FileInfo> allFilesInDir, int forcedDeletionAfterHours,
-        DateTime lastAccessCutoffTime, DateTime forcedDeletionCutoffTime, CancellationToken ct)
-    {
-        List<string> removedFileHashes = new List<string>();
-
-        foreach (var file in allFilesInDir)
-        {
-            bool deleteCurrentFile = false;
-            if (file != null && file.LastAccessTime < lastAccessCutoffTime)
-            {
-                _logger.LogInformation("File outdated: {fileName}, {fileSize}MiB", file.Name, ByteSize.FromBytes(file.Length).MebiBytes);
-                deleteCurrentFile = true;
-            }
-            else if (file != null && forcedDeletionAfterHours > 0 && file.LastWriteTime < forcedDeletionCutoffTime)
-            {
-                _logger.LogInformation("File forcefully deleted: {fileName}, {fileSize}MiB", file.Name, ByteSize.FromBytes(file.Length).MebiBytes);
-                deleteCurrentFile = true;
-            }
-
-            if (deleteCurrentFile)
-            {
-                if (file != null) file.Delete();
-
-                removedFileHashes.Add(file.Name);
-            }
-
-            ct.ThrowIfCancellationRequested();
-        }
-
-        return removedFileHashes;
-    }
 
     private void InitializeGauges()
     {
-        bool useColdStorage = _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.UseColdStorage), false);
-
-        if (useColdStorage)
+        if (_useColdStorage)
         {
-            var coldStorageDir = _configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.ColdStorageDirectory));
-
-            DirectoryInfo dirColdStorage = new(coldStorageDir);
-            var allFilesInColdStorageDir = dirColdStorage.GetFiles("*", SearchOption.AllDirectories).ToList();
+            var allFilesInColdStorageDir = GetAllColdFiles();
 
             _metrics.SetGaugeTo(MetricsAPI.GaugeFilesTotalSizeColdStorage, allFilesInColdStorageDir.Sum(f => f.Length));
             _metrics.SetGaugeTo(MetricsAPI.GaugeFilesTotalColdStorage, allFilesInColdStorageDir.Count);
         }
 
-        var hotStorageDir = _configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.CacheDirectory));
-        DirectoryInfo dirHotStorage = new(hotStorageDir);
-        var allFilesInHotStorage = dirHotStorage.GetFiles("*", SearchOption.AllDirectories).ToList();
+        var allFilesInHotStorage = GetAllHotFiles();
 
         _metrics.SetGaugeTo(MetricsAPI.GaugeFilesTotalSize, allFilesInHotStorage.Sum(f => { try { return f.Length; } catch { return 0; } }));
         _metrics.SetGaugeTo(MetricsAPI.GaugeFilesTotal, allFilesInHotStorage.Count);

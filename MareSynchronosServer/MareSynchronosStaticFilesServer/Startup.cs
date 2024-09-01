@@ -82,6 +82,7 @@ public class Startup
 
         // generic services
         services.AddSingleton<CachedFileProvider>();
+        services.AddHostedService<FileCleanupService>();
         services.AddSingleton<FileStatisticsService>();
         services.AddSingleton<RequestFileStreamResultFactory>();
         services.AddSingleton<ServerTokenGenerator>();
@@ -95,7 +96,6 @@ public class Startup
         if (_isMain)
         {
             services.AddSingleton<IClientReadyMessageService, MainClientReadyMessageService>();
-            services.AddHostedService<FileCleanupService>();
             services.AddSingleton<IConfigurationService<StaticFilesServerConfiguration>, MareConfigurationServiceServer<StaticFilesServerConfiguration>>();
             services.AddDbContextPool<MareDbContext>(options =>
             {
@@ -171,7 +171,6 @@ public class Startup
         else
         {
             services.AddSingleton<IClientReadyMessageService, ShardClientReadyMessageService>();
-            services.AddHostedService<ShardFileCleanupService>();
             services.AddSingleton<IConfigurationService<StaticFilesServerConfiguration>, MareConfigurationServiceClient<StaticFilesServerConfiguration>>();
             services.AddHostedService(p => (MareConfigurationServiceClient<StaticFilesServerConfiguration>)p.GetService<IConfigurationService<StaticFilesServerConfiguration>>());
         }

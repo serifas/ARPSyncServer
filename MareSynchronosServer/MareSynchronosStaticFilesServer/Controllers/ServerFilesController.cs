@@ -28,6 +28,7 @@ public class ServerFilesController : ControllerBase
     private static readonly SemaphoreSlim _fileLockDictLock = new(1);
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> _fileUploadLocks = new(StringComparer.Ordinal);
     private readonly string _basePath;
+    private readonly string _coldBasePath;
     private readonly CachedFileProvider _cachedFileProvider;
     private readonly IConfigurationService<StaticFilesServerConfiguration> _configuration;
     private readonly IHubContext<MareHub> _hubContext;
@@ -39,11 +40,11 @@ public class ServerFilesController : ControllerBase
         IHubContext<MareHub> hubContext,
         MareDbContext mareDbContext, MareMetrics metricsClient) : base(logger)
     {
-        _basePath = configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.UseColdStorage), false)
-            ? configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.ColdStorageDirectory))
-            : configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.CacheDirectory));
-        _cachedFileProvider = cachedFileProvider;
         _configuration = configuration;
+        _basePath = configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.CacheDirectory));
+        if (_configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.UseColdStorage), false))
+            _basePath = configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.ColdStorageDirectory));
+        _cachedFileProvider = cachedFileProvider;
         _hubContext = hubContext;
         _mareDbContext = mareDbContext;
         _metricsClient = metricsClient;
@@ -53,17 +54,31 @@ public class ServerFilesController : ControllerBase
     public async Task<IActionResult> FilesDeleteAll()
     {
         var ownFiles = await _mareDbContext.Files.Where(f => f.Uploaded && f.Uploader.UID == MareUser).ToListAsync().ConfigureAwait(false);
-        bool isColdStorage = _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.UseColdStorage), false);
 
         foreach (var dbFile in ownFiles)
         {
             var fi = FilePathUtil.GetFileInfoForHash(_basePath, dbFile.Hash);
             if (fi != null)
             {
-                _metricsClient.DecGauge(isColdStorage ? MetricsAPI.GaugeFilesTotalColdStorage : MetricsAPI.GaugeFilesTotal, fi == null ? 0 : 1);
-                _metricsClient.DecGauge(isColdStorage ? MetricsAPI.GaugeFilesTotalSizeColdStorage : MetricsAPI.GaugeFilesTotalSize, fi?.Length ?? 0);
+                _metricsClient.DecGauge(MetricsAPI.GaugeFilesTotal, fi == null ? 0 : 1);
+                _metricsClient.DecGauge(MetricsAPI.GaugeFilesTotalSize, fi?.Length ?? 0);
 
                 fi?.Delete();
+            }
+        }
+
+        if (!_coldBasePath.IsNullOrEmpty())
+        {
+            foreach (var dbFile in ownFiles)
+            {
+                var fi = FilePathUtil.GetFileInfoForHash(_coldBasePath, dbFile.Hash);
+                if (fi != null)
+                {
+                    _metricsClient.DecGauge(MetricsAPI.GaugeFilesTotalColdStorage, fi == null ? 0 : 1);
+                    _metricsClient.DecGauge(MetricsAPI.GaugeFilesTotalSizeColdStorage, fi?.Length ?? 0);
+
+                    fi?.Delete();
+                }
             }
         }
 
@@ -266,10 +281,8 @@ public class ServerFilesController : ControllerBase
             }).ConfigureAwait(false);
             await _mareDbContext.SaveChangesAsync().ConfigureAwait(false);
 
-            bool isColdStorage = _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.UseColdStorage), false);
-
-            _metricsClient.IncGauge(isColdStorage ? MetricsAPI.GaugeFilesTotalColdStorage : MetricsAPI.GaugeFilesTotal, 1);
-            _metricsClient.IncGauge(isColdStorage ? MetricsAPI.GaugeFilesTotalSizeColdStorage : MetricsAPI.GaugeFilesTotalSize, compressedSize);
+            _metricsClient.IncGauge(MetricsAPI.GaugeFilesTotal, 1);
+            _metricsClient.IncGauge(MetricsAPI.GaugeFilesTotalSize, compressedSize);
 
             _fileUploadLocks.TryRemove(hash, out _);
 

@@ -16,7 +16,9 @@ public sealed class CachedFileProvider : IDisposable
     private readonly MareMetrics _metrics;
     private readonly ServerTokenGenerator _generator;
     private readonly Uri _remoteCacheSourceUri;
+    private readonly bool _useColdStorage;
     private readonly string _hotStoragePath;
+    private readonly string _coldStoragePath;
     private readonly ConcurrentDictionary<string, Task> _currentTransfers = new(StringComparer.Ordinal);
     private readonly HttpClient _httpClient;
     private readonly SemaphoreSlim _downloadSemaphore = new(1, 1);
@@ -35,7 +37,9 @@ public sealed class CachedFileProvider : IDisposable
         _generator = generator;
         _remoteCacheSourceUri = configuration.GetValueOrDefault<Uri>(nameof(StaticFilesServerConfiguration.DistributionFileServerAddress), null);
         _isDistributionServer = configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.IsDistributionNode), false);
+        _useColdStorage = configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.UseColdStorage), false);
         _hotStoragePath = configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.CacheDirectory));
+        _coldStoragePath = configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.ColdStorageDirectory));
         _httpClient = new();
         _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("MareSynchronosServer", "1.0.0.0"));
     }
@@ -53,7 +57,7 @@ public sealed class CachedFileProvider : IDisposable
 
     private async Task DownloadTask(string hash)
     {
-        var destinationFilePath = FilePathUtil.GetFilePath(_hotStoragePath, hash);
+        var destinationFilePath = FilePathUtil.GetFilePath(_useColdStorage ? _coldStoragePath : _hotStoragePath, hash);
 
         // if cold storage is not configured or file not found or error is present try to download file from remote
         var downloadUrl = MareFiles.DistributionGetFullPath(_remoteCacheSourceUri, hash);
@@ -77,7 +81,7 @@ public sealed class CachedFileProvider : IDisposable
 
         var tempFileName = destinationFilePath + ".dl";
         var fileStream = new FileStream(tempFileName, FileMode.Create, FileAccess.ReadWrite);
-        var bufferSize = response.Content.Headers.ContentLength > 1024 * 1024 ? 4096 : 1024;
+        var bufferSize = 4096;
         var buffer = new byte[bufferSize];
 
         var bytesRead = 0;
@@ -90,19 +94,18 @@ public sealed class CachedFileProvider : IDisposable
         await fileStream.DisposeAsync().ConfigureAwait(false);
         File.Move(tempFileName, destinationFilePath, true);
 
-        _metrics.IncGauge(MetricsAPI.GaugeFilesTotal);
-        _metrics.IncGauge(MetricsAPI.GaugeFilesTotalSize, FilePathUtil.GetFileInfoForHash(_hotStoragePath, hash).Length);
+        _metrics.IncGauge(_useColdStorage ? MetricsAPI.GaugeFilesTotalColdStorage : MetricsAPI.GaugeFilesTotal);
+        _metrics.IncGauge(_useColdStorage ? MetricsAPI.GaugeFilesTotalSizeColdStorage : MetricsAPI.GaugeFilesTotalSize, new FileInfo(destinationFilePath).Length);
         response.Dispose();
     }
 
     private bool TryCopyFromColdStorage(string hash, string destinationFilePath)
     {
-        if (!_configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.UseColdStorage), false)) return false;
+        if (!_useColdStorage) return false;
 
-        string coldStorageDir = _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.ColdStorageDirectory), string.Empty);
-        if (string.IsNullOrEmpty(coldStorageDir)) return false;
+        if (string.IsNullOrEmpty(_coldStoragePath)) return false;
 
-        var coldStorageFilePath = FilePathUtil.GetFileInfoForHash(coldStorageDir, hash);
+        var coldStorageFilePath = FilePathUtil.GetFileInfoForHash(_coldStoragePath, hash);
         if (coldStorageFilePath == null) return false;
 
         try
@@ -131,16 +134,20 @@ public sealed class CachedFileProvider : IDisposable
     public async Task DownloadFileWhenRequired(string hash)
     {
         var fi = FilePathUtil.GetFileInfoForHash(_hotStoragePath, hash);
-        if (fi == null)
-        {
-            if (TryCopyFromColdStorage(hash, FilePathUtil.GetFilePath(_hotStoragePath, hash)))
-                return;
-        }
+
+        if (fi != null && fi.Length != 0)
+            return;
+
+        // first check cold storage
+        if (TryCopyFromColdStorage(hash, FilePathUtil.GetFilePath(_hotStoragePath, hash)))
+            return;
+
+        // no distribution server configured to download from
+        if (_remoteCacheSourceUri == null)
+            return;
 
         await _downloadSemaphore.WaitAsync().ConfigureAwait(false);
-        if ((fi == null || (fi?.Length ?? 0) == 0)
-            && (!_currentTransfers.TryGetValue(hash, out var downloadTask)
-                || (downloadTask?.IsCompleted ?? true)))
+        if (!_currentTransfers.TryGetValue(hash, out var downloadTask) || (downloadTask?.IsCompleted ?? true))
         {
             _currentTransfers[hash] = Task.Run(async () =>
             {
