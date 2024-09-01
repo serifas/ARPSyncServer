@@ -95,7 +95,7 @@ public class Startup
         if (_isMain)
         {
             services.AddSingleton<IClientReadyMessageService, MainClientReadyMessageService>();
-            services.AddHostedService<MainFileCleanupService>();
+            services.AddHostedService<FileCleanupService>();
             services.AddSingleton<IConfigurationService<StaticFilesServerConfiguration>, MareConfigurationServiceServer<StaticFilesServerConfiguration>>();
             services.AddDbContextPool<MareDbContext>(options =>
             {
@@ -196,7 +196,7 @@ public class Startup
             }
         });
 
-        // authentication and authorization 
+        // authentication and authorization
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
             .Configure<IConfigurationService<MareConfigurationAuthBase>>((o, s) =>
             {

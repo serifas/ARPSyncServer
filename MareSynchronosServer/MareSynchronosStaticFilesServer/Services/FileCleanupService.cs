@@ -8,15 +8,15 @@ using Microsoft.EntityFrameworkCore;
 
 namespace MareSynchronosStaticFilesServer.Services;
 
-public class MainFileCleanupService : IHostedService
+public class FileCleanupService : IHostedService
 {
     private readonly IConfigurationService<StaticFilesServerConfiguration> _configuration;
-    private readonly ILogger<MainFileCleanupService> _logger;
+    private readonly ILogger<FileCleanupService> _logger;
     private readonly MareMetrics _metrics;
     private readonly IServiceProvider _services;
     private CancellationTokenSource _cleanupCts;
 
-    public MainFileCleanupService(MareMetrics metrics, ILogger<MainFileCleanupService> logger,
+    public FileCleanupService(MareMetrics metrics, ILogger<FileCleanupService> logger,
         IServiceProvider services, IConfigurationService<StaticFilesServerConfiguration> configuration)
     {
         _metrics = metrics;
