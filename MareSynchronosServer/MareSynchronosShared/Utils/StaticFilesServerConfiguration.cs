@@ -8,6 +8,7 @@ public class StaticFilesServerConfiguration : MareConfigurationBase
     public bool IsDistributionNode { get; set; } = false;
     public Uri? MainFileServerAddress { get; set; } = null;
     public Uri? DistributionFileServerAddress { get; set; } = null;
+    public bool DistributionFileServerForceHTTP2 { get; set; } = false;
     public int ForcedDeletionOfFilesAfterHours { get; set; } = -1;
     public double CacheSizeHardLimitInGiB { get; set; } = -1;
     public int UnusedFileRetentionPeriodInDays { get; set; } = 14;
@@ -30,6 +31,8 @@ public class StaticFilesServerConfiguration : MareConfigurationBase
         StringBuilder sb = new();
         sb.AppendLine(base.ToString());
         sb.AppendLine($"{nameof(MainFileServerAddress)} => {MainFileServerAddress}");
+        sb.AppendLine($"{nameof(DistributionFileServerAddress)} => {DistributionFileServerAddress}");
+        sb.AppendLine($"{nameof(DistributionFileServerForceHTTP2)} => {DistributionFileServerForceHTTP2}");
         sb.AppendLine($"{nameof(ForcedDeletionOfFilesAfterHours)} => {ForcedDeletionOfFilesAfterHours}");
         sb.AppendLine($"{nameof(CacheSizeHardLimitInGiB)} => {CacheSizeHardLimitInGiB}");
         sb.AppendLine($"{nameof(UseColdStorage)} => {UseColdStorage}");

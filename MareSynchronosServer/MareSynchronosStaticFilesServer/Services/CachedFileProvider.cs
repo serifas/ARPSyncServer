@@ -30,6 +30,7 @@ public sealed class CachedFileProvider : IDisposable
     public CachedFileProvider(IConfigurationService<StaticFilesServerConfiguration> configuration, ILogger<CachedFileProvider> logger,
         FileStatisticsService fileStatisticsService, MareMetrics metrics, ServerTokenGenerator generator)
     {
+        AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
         _configuration = configuration;
         _logger = logger;
         _fileStatisticsService = fileStatisticsService;
@@ -65,6 +66,11 @@ public sealed class CachedFileProvider : IDisposable
 
         using var requestMessage = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
         requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _generator.Token);
+        if (_configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.DistributionFileServerForceHTTP2), false))
+        {
+            requestMessage.Version = new Version(2, 0);
+            requestMessage.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
+        }
         HttpResponseMessage? response = null;
 
         try
