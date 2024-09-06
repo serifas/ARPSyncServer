@@ -25,7 +25,10 @@ public class ShardClientReadyMessageService : IClientReadyMessageService
     {
         _ = Task.Run(async () =>
         {
-            var mainUrl = _configurationService.GetValue<Uri>(nameof(StaticFilesServerConfiguration.MainFileServerAddress));
+            var mainUrlConfigKey = _configurationService.GetValue<bool>(nameof(StaticFilesServerConfiguration.NotifyMainServerDirectly))
+                ? nameof(StaticFilesServerConfiguration.MainServerAddress)
+                : nameof(StaticFilesServerConfiguration.MainFileServerAddress);
+            var mainUrl = _configurationService.GetValue<Uri>(mainUrlConfigKey);
             var path = MareFiles.MainSendReadyFullPath(mainUrl, uid, requestId);
             using HttpRequestMessage msg = new()
             {

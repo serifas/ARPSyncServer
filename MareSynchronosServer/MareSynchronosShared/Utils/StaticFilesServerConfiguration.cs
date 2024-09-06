@@ -6,6 +6,7 @@ namespace MareSynchronosStaticFilesServer;
 public class StaticFilesServerConfiguration : MareConfigurationBase
 {
     public bool IsDistributionNode { get; set; } = false;
+    public bool NotifyMainServerDirectly { get; set; } = false;
     public Uri? MainFileServerAddress { get; set; } = null;
     public Uri? DistributionFileServerAddress { get; set; } = null;
     public bool DistributionFileServerForceHTTP2 { get; set; } = false;
@@ -30,6 +31,8 @@ public class StaticFilesServerConfiguration : MareConfigurationBase
     {
         StringBuilder sb = new();
         sb.AppendLine(base.ToString());
+        sb.AppendLine($"{nameof(IsDistributionNode)} => {IsDistributionNode}");
+        sb.AppendLine($"{nameof(NotifyMainServerDirectly)} => {NotifyMainServerDirectly}");
         sb.AppendLine($"{nameof(MainFileServerAddress)} => {MainFileServerAddress}");
         sb.AppendLine($"{nameof(DistributionFileServerAddress)} => {DistributionFileServerAddress}");
         sb.AppendLine($"{nameof(DistributionFileServerForceHTTP2)} => {DistributionFileServerForceHTTP2}");
