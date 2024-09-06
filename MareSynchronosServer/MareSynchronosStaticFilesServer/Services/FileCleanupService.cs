@@ -20,6 +20,7 @@ public class FileCleanupService : IHostedService
     private readonly bool _isMain = false;
     private readonly bool _isDistributionNode = false;
     private readonly bool _useColdStorage = false;
+    private HashSet<string> _orphanedFiles = new(StringComparer.Ordinal);
 
     private CancellationTokenSource _cleanupCts;
 
@@ -112,17 +113,29 @@ public class FileCleanupService : IHostedService
 
     private void CleanUpOrphanedFiles(HashSet<string> allDbFileHashes, List<FileInfo> allPhysicalFiles, CancellationToken ct)
     {
+        // To avoid race conditions with file uploads, only delete files on a second pass
+        var newOrphanedFiles = new HashSet<string>(StringComparer.Ordinal);
+
         foreach (var file in allPhysicalFiles.ToList())
         {
             if (!allDbFileHashes.Contains(file.Name.ToUpperInvariant()))
             {
-                file.Delete();
-                _logger.LogInformation("File not in DB, deleting: {fileName}", file.Name);
-                allPhysicalFiles.Remove(file);
+                _logger.LogInformation("File not in DB, marking: {fileName}", file.Name);
+                newOrphanedFiles.Add(file.FullName);
             }
 
             ct.ThrowIfCancellationRequested();
         }
+
+        foreach (var fullName in _orphanedFiles.Where(f => newOrphanedFiles.Contains(f)))
+        {
+            var name = Path.GetFileName(fullName);
+            File.Delete(fullName);
+            _logger.LogInformation("File still not in DB, deleting: {fileName}", name);
+            allPhysicalFiles.RemoveAll(f => f.FullName.Equals(fullName, StringComparison.InvariantCultureIgnoreCase));
+        }
+
+        _orphanedFiles = newOrphanedFiles;
     }
 
     private List<string> CleanUpOutdatedFiles(List<FileInfo> files, int unusedRetention, int forcedDeletionAfterHours, CancellationToken ct)
