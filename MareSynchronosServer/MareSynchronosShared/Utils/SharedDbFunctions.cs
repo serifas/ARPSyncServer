@@ -65,9 +65,6 @@ public static class SharedDbFunctions
 
         var auth = dbContext.Auth.Single(a => a.UserUID == user.UID);
 
-        var userFiles = dbContext.Files.Where(f => f.Uploaded && f.Uploader.UID == user.UID).ToList();
-        dbContext.Files.RemoveRange(userFiles);
-
         var ownPairData = dbContext.ClientPairs.Where(u => u.User.UID == user.UID).ToList();
         dbContext.ClientPairs.RemoveRange(ownPairData);
         var otherPairData = dbContext.ClientPairs.Include(u => u.User)

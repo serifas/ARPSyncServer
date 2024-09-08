@@ -14,6 +14,8 @@ public class MareConfigurationAuthBase : MareConfigurationBase
     public int RegisterIpDurationInMinutes { get; set; } = 10;
     [RemoteConfiguration]
     public List<string> WhitelistedIps { get; set; } = new();
+    [RemoteConfiguration]
+    public bool UseGeoIP { get; set; } = false;
 
     public override string ToString()
     {
@@ -25,6 +27,7 @@ public class MareConfigurationAuthBase : MareConfigurationBase
         sb.AppendLine($"{nameof(RegisterIpDurationInMinutes)} => {RegisterIpDurationInMinutes}");
         sb.AppendLine($"{nameof(Jwt)} => {Jwt}");
         sb.AppendLine($"{nameof(WhitelistedIps)} => {string.Join(", ", WhitelistedIps)}");
+        sb.AppendLine($"{nameof(UseGeoIP)} => {UseGeoIP}");
         return sb.ToString();
     }
 }

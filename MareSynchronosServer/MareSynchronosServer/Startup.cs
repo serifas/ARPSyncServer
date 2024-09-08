@@ -96,8 +96,10 @@ public class Startup
 
         if (isMainServer)
         {
+            services.AddSingleton<GeoIPService>();
             services.AddSingleton<UserCleanupService>();
             services.AddHostedService(provider => provider.GetService<UserCleanupService>());
+            services.AddHostedService(provider => provider.GetService<GeoIPService>());
         }
     }
 

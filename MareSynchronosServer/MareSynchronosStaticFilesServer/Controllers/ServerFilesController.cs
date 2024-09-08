@@ -10,10 +10,10 @@ using MareSynchronosShared.Services;
 using MareSynchronosShared.Utils;
 using MareSynchronosStaticFilesServer.Services;
 using MareSynchronosStaticFilesServer.Utils;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Security.Policy;
@@ -28,6 +28,7 @@ public class ServerFilesController : ControllerBase
     private static readonly SemaphoreSlim _fileLockDictLock = new(1);
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> _fileUploadLocks = new(StringComparer.Ordinal);
     private readonly string _basePath;
+    private readonly string _coldBasePath;
     private readonly CachedFileProvider _cachedFileProvider;
     private readonly IConfigurationService<StaticFilesServerConfiguration> _configuration;
     private readonly IHubContext<MareHub> _hubContext;
@@ -36,12 +37,14 @@ public class ServerFilesController : ControllerBase
 
     public ServerFilesController(ILogger<ServerFilesController> logger, CachedFileProvider cachedFileProvider,
         IConfigurationService<StaticFilesServerConfiguration> configuration,
-        IHubContext<MareSynchronosServer.Hubs.MareHub> hubContext,
+        IHubContext<MareHub> hubContext,
         MareDbContext mareDbContext, MareMetrics metricsClient) : base(logger)
     {
-        _basePath = configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.CacheDirectory));
-        _cachedFileProvider = cachedFileProvider;
         _configuration = configuration;
+        _basePath = configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.CacheDirectory));
+        if (_configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.UseColdStorage), false))
+            _basePath = configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.ColdStorageDirectory));
+        _cachedFileProvider = cachedFileProvider;
         _hubContext = hubContext;
         _mareDbContext = mareDbContext;
         _metricsClient = metricsClient;
@@ -50,44 +53,47 @@ public class ServerFilesController : ControllerBase
     [HttpPost(MareFiles.ServerFiles_DeleteAll)]
     public async Task<IActionResult> FilesDeleteAll()
     {
-        var ownFiles = await _mareDbContext.Files.Where(f => f.Uploaded && f.Uploader.UID == MareUser).ToListAsync().ConfigureAwait(false);
-
-        foreach (var dbFile in ownFiles)
-        {
-            var fi = FilePathUtil.GetFileInfoForHash(_basePath, dbFile.Hash);
-            if (fi != null)
-            {
-                _metricsClient.DecGauge(MetricsAPI.GaugeFilesTotal, fi == null ? 0 : 1);
-                _metricsClient.DecGauge(MetricsAPI.GaugeFilesTotalSize, fi?.Length ?? 0);
-
-                fi?.Delete();
-            }
-        }
-
-        _mareDbContext.Files.RemoveRange(ownFiles);
-        await _mareDbContext.SaveChangesAsync().ConfigureAwait(false);
-
         return Ok();
     }
 
     [HttpGet(MareFiles.ServerFiles_GetSizes)]
     public async Task<IActionResult> FilesGetSizes([FromBody] List<string> hashes)
     {
-        var allFiles = await _mareDbContext.Files.Where(f => hashes.Contains(f.Hash)).ToListAsync().ConfigureAwait(false);
         var forbiddenFiles = await _mareDbContext.ForbiddenUploadEntries.
             Where(f => hashes.Contains(f.Hash)).ToListAsync().ConfigureAwait(false);
         List<DownloadFileDto> response = new();
 
         var cacheFile = await _mareDbContext.Files.AsNoTracking().Where(f => hashes.Contains(f.Hash)).AsNoTracking().Select(k => new { k.Hash, k.Size }).AsNoTracking().ToListAsync().ConfigureAwait(false);
 
-        var shardConfig = new List<CdnShardConfiguration>(_configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.CdnShardConfiguration), new List<CdnShardConfiguration>()));
+        var allFileShards = new List<CdnShardConfiguration>(_configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.CdnShardConfiguration), new List<CdnShardConfiguration>()));
 
         foreach (var file in cacheFile)
         {
             var forbiddenFile = forbiddenFiles.SingleOrDefault(f => string.Equals(f.Hash, file.Hash, StringComparison.OrdinalIgnoreCase));
+            Uri? baseUrl = null;
 
-            var matchedShardConfig = shardConfig.OrderBy(g => Guid.NewGuid()).FirstOrDefault(f => new Regex(f.FileMatch).IsMatch(file.Hash));
-            var baseUrl = matchedShardConfig?.CdnFullUrl ?? _configuration.GetValue<Uri>(nameof(StaticFilesServerConfiguration.CdnFullUrl));
+            if (forbiddenFile == null)
+            {
+                List<CdnShardConfiguration> selectedShards = new();
+                var matchingShards = allFileShards.Where(f => new Regex(f.FileMatch).IsMatch(file.Hash)).ToList();
+
+                if (string.Equals(Continent, "*", StringComparison.Ordinal))
+                {
+                    selectedShards = matchingShards;
+                }
+                else
+                {
+                    selectedShards = matchingShards.Where(c => c.Continents.Contains(Continent, StringComparer.OrdinalIgnoreCase)).ToList();
+                    if (!selectedShards.Any()) selectedShards = matchingShards;
+                }
+
+                var shard = selectedShards
+                    .OrderBy(s => !s.Continents.Any() ? 0 : 1)
+                    .ThenBy(s => s.Continents.Contains("*", StringComparer.Ordinal) ? 0 : 1)
+                    .ThenBy(g => Guid.NewGuid()).FirstOrDefault();
+
+                baseUrl = shard?.CdnFullUrl ?? _configuration.GetValue<Uri>(nameof(StaticFilesServerConfiguration.CdnFullUrl));
+            }
 
             response.Add(new DownloadFileDto
             {
@@ -96,7 +102,7 @@ public class ServerFilesController : ControllerBase
                 IsForbidden = forbiddenFile != null,
                 Hash = file.Hash,
                 Size = file.Size,
-                Url = baseUrl.ToString(),
+                Url = baseUrl?.ToString() ?? string.Empty,
             });
         }
 
@@ -143,18 +149,6 @@ public class ServerFilesController : ControllerBase
         }
 
         return Ok(JsonSerializer.Serialize(notCoveredFiles.Values.ToList()));
-    }
-
-    [HttpGet(MareFiles.ServerFiles_Get + "/{fileId}")]
-    [Authorize(Policy = "Internal")]
-    public IActionResult GetFile(string fileId)
-    {
-        _logger.LogInformation($"GetFile:{MareUser}:{fileId}");
-
-        var fs = _cachedFileProvider.GetLocalFileStream(fileId);
-        if (fs == null) return NotFound();
-
-        return File(fs, "application/octet-stream");
     }
 
     [HttpPost(MareFiles.ServerFiles_Upload + "/{hash}")]

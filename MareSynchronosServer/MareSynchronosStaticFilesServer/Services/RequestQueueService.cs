@@ -1,37 +1,29 @@
 ﻿using MareSynchronosShared.Metrics;
 using MareSynchronosShared.Services;
 using MareSynchronosStaticFilesServer.Utils;
-using Microsoft.AspNetCore.SignalR;
 using System.Collections.Concurrent;
-using System.Timers;
-using MareSynchronos.API.SignalR;
-using MareSynchronosShared.Data;
-using Microsoft.EntityFrameworkCore;
 using System.Linq;
+using System.Timers;
 
 namespace MareSynchronosStaticFilesServer.Services;
 
 public class RequestQueueService : IHostedService
 {
-    private record PriorityEntry(bool IsHighPriority, DateTime LastChecked);
-
-    private readonly IHubContext<MareSynchronosServer.Hubs.MareHub> _hubContext;
+    private readonly IClientReadyMessageService _clientReadyMessageService;
+    private readonly CachedFileProvider _cachedFileProvider;
     private readonly ILogger<RequestQueueService> _logger;
     private readonly MareMetrics _metrics;
     private readonly ConcurrentQueue<UserRequest> _queue = new();
     private readonly ConcurrentQueue<UserRequest> _priorityQueue = new();
     private readonly int _queueExpirationSeconds;
     private readonly SemaphoreSlim _queueProcessingSemaphore = new(1);
-    private readonly ConcurrentDictionary<Guid, string> _queueRemoval = new();
-    private readonly SemaphoreSlim _queueSemaphore = new(1);
     private readonly UserQueueEntry[] _userQueueRequests;
-    private readonly ConcurrentDictionary<string, PriorityEntry> _priorityCache = new(StringComparer.Ordinal);
     private int _queueLimitForReset;
     private readonly int _queueReleaseSeconds;
     private System.Timers.Timer _queueTimer;
 
     public RequestQueueService(MareMetrics metrics, IConfigurationService<StaticFilesServerConfiguration> configurationService,
-        ILogger<RequestQueueService> logger, IHubContext<MareSynchronosServer.Hubs.MareHub> hubContext)
+        ILogger<RequestQueueService> logger, IClientReadyMessageService hubContext, CachedFileProvider cachedFileProvider)
     {
         _userQueueRequests = new UserQueueEntry[configurationService.GetValueOrDefault(nameof(StaticFilesServerConfiguration.DownloadQueueSize), 50)];
         _queueExpirationSeconds = configurationService.GetValueOrDefault(nameof(StaticFilesServerConfiguration.DownloadTimeoutSeconds), 5);
@@ -39,7 +31,8 @@ public class RequestQueueService : IHostedService
         _queueReleaseSeconds = configurationService.GetValueOrDefault(nameof(StaticFilesServerConfiguration.DownloadQueueReleaseSeconds), 15);
         _metrics = metrics;
         _logger = logger;
-        _hubContext = hubContext;
+        _clientReadyMessageService = hubContext;
+        _cachedFileProvider = cachedFileProvider;
     }
 
     public void ActivateRequest(Guid request)
@@ -49,50 +42,16 @@ public class RequestQueueService : IHostedService
         req.MarkActive();
     }
 
-    private async Task<bool> IsHighPriority(string uid, MareDbContext mareDbContext)
+    public async Task EnqueueUser(UserRequest request, bool isPriority, CancellationToken token)
     {
-        return false;
-        if (!_priorityCache.TryGetValue(uid, out PriorityEntry entry) || entry.LastChecked.Add(TimeSpan.FromHours(6)) < DateTime.UtcNow)
+        while (_queueProcessingSemaphore.CurrentCount == 0)
         {
-            var user = await mareDbContext.Users.FirstOrDefaultAsync(u => u.UID == uid).ConfigureAwait(false);
-            entry = new(user != null && !string.IsNullOrEmpty(user.Alias), DateTime.UtcNow);
-            _priorityCache[uid] = entry;
+            await Task.Delay(50, token).ConfigureAwait(false);
         }
 
-        return entry.IsHighPriority;
-    }
-
-    public async Task EnqueueUser(UserRequest request, MareDbContext mareDbContext)
-    {
         _logger.LogDebug("Enqueueing req {guid} from {user} for {file}", request.RequestId, request.User, string.Join(", ", request.FileIds));
 
-        bool isPriorityQueue = await IsHighPriority(request.User, mareDbContext).ConfigureAwait(false);
-
-        if (_queueProcessingSemaphore.CurrentCount == 0)
-        {
-            if (isPriorityQueue) _priorityQueue.Enqueue(request);
-            else _queue.Enqueue(request);
-            return;
-        }
-
-        try
-        {
-            await _queueSemaphore.WaitAsync().ConfigureAwait(false);
-            if (isPriorityQueue) _priorityQueue.Enqueue(request);
-            else _queue.Enqueue(request);
-
-            return;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during EnqueueUser");
-        }
-        finally
-        {
-            _queueSemaphore.Release();
-        }
-
-        throw new Exception("Error during EnqueueUser");
+        GetQueue(isPriority).Enqueue(request);
     }
 
     public void FinishRequest(Guid request)
@@ -117,9 +76,10 @@ public class RequestQueueService : IHostedService
         return userQueueRequest != null && userRequest != null && userQueueRequest.ExpirationDate > DateTime.UtcNow;
     }
 
-    public void RemoveFromQueue(Guid requestId, string user)
+    public void RemoveFromQueue(Guid requestId, string user, bool isPriority)
     {
-        if (!_queue.Any(f => f.RequestId == requestId && string.Equals(f.User, user, StringComparison.Ordinal)))
+        var existingRequest = GetQueue(isPriority).FirstOrDefault(f => f.RequestId == requestId && string.Equals(f.User, user, StringComparison.Ordinal));
+        if (existingRequest == null)
         {
             var activeSlot = _userQueueRequests.FirstOrDefault(r => r != null && string.Equals(r.UserRequest.User, user, StringComparison.Ordinal) && r.UserRequest.RequestId == requestId);
             if (activeSlot != null)
@@ -130,29 +90,27 @@ public class RequestQueueService : IHostedService
                     _userQueueRequests[idx] = null;
                 }
             }
-
-            return;
         }
-        _queueRemoval[requestId] = user;
+        else
+        {
+            existingRequest.IsCancelled = true;
+        }
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        _queueTimer = new System.Timers.Timer(250);
+        _queueTimer = new System.Timers.Timer(500);
         _queueTimer.Elapsed += ProcessQueue;
         _queueTimer.AutoReset = true;
         _queueTimer.Start();
         return Task.CompletedTask;
     }
 
-    public async Task<bool> StillEnqueued(Guid request, string user, MareDbContext mareDbContext)
+    private ConcurrentQueue<UserRequest> GetQueue(bool isPriority) => isPriority ? _priorityQueue : _queue;
+
+    public bool StillEnqueued(Guid request, string user, bool isPriority)
     {
-        bool isPriorityQueue = await IsHighPriority(user, mareDbContext).ConfigureAwait(false);
-        if (isPriorityQueue)
-        {
-            return _priorityQueue.Any(c => c.RequestId == request && string.Equals(c.User, user, StringComparison.Ordinal));
-        }
-        return _queue.Any(c => c.RequestId == request && string.Equals(c.User, user, StringComparison.Ordinal));
+        return GetQueue(isPriority).Any(c => c.RequestId == request && string.Equals(c.User, user, StringComparison.Ordinal));
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
@@ -161,92 +119,88 @@ public class RequestQueueService : IHostedService
         return Task.CompletedTask;
     }
 
-    private async Task DequeueIntoSlotAsync(UserRequest userRequest, int slot)
+    private void DequeueIntoSlot(UserRequest userRequest, int slot)
     {
         _logger.LogDebug("Dequeueing {req} into {i}: {user} with {file}", userRequest.RequestId, slot, userRequest.User, string.Join(", ", userRequest.FileIds));
         _userQueueRequests[slot] = new(userRequest, DateTime.UtcNow.AddSeconds(_queueExpirationSeconds));
-        await _hubContext.Clients.User(userRequest.User).SendAsync(nameof(IMareHub.Client_DownloadReady), userRequest.RequestId).ConfigureAwait(false);
+        _clientReadyMessageService.SendDownloadReady(userRequest.User, userRequest.RequestId);
     }
 
-    private async void ProcessQueue(object src, ElapsedEventArgs e)
+    private void ProcessQueue(object src, ElapsedEventArgs e)
     {
         if (_queueProcessingSemaphore.CurrentCount == 0) return;
 
-        await _queueProcessingSemaphore.WaitAsync().ConfigureAwait(false);
+        _queueProcessingSemaphore.Wait();
 
         try
         {
-            if (_queue.Count > _queueLimitForReset)
+            if (_queue.Count(c => !c.IsCancelled) > _queueLimitForReset)
             {
                 _queue.Clear();
                 return;
             }
 
-            Parallel.For(0, _userQueueRequests.Length, new ParallelOptions()
-            {
-                MaxDegreeOfParallelism = 10,
-            },
-            async (i) =>
+            for (int i = 0; i < _userQueueRequests.Length; i++)
             {
                 try
                 {
-                    if (_userQueueRequests[i] != null && ((!_userQueueRequests[i].IsActive && _userQueueRequests[i].ExpirationDate < DateTime.UtcNow)))
+                    if (_userQueueRequests[i] != null
+                        && (((!_userQueueRequests[i].IsActive && _userQueueRequests[i].ExpirationDate < DateTime.UtcNow))
+                            || (_userQueueRequests[i].IsActive && _userQueueRequests[i].ActivationDate < DateTime.UtcNow.Subtract(TimeSpan.FromSeconds(_queueReleaseSeconds))))
+                            )
                     {
-                        _logger.LogDebug("Expiring inactive request {guid} slot {slot}", _userQueueRequests[i].UserRequest.RequestId, i);
+                        _logger.LogDebug("Expiring request {guid} slot {slot}", _userQueueRequests[i].UserRequest.RequestId, i);
                         _userQueueRequests[i] = null;
                     }
 
-                    if (_userQueueRequests[i] != null && (_userQueueRequests[i].IsActive && _userQueueRequests[i].ActivationDate < DateTime.UtcNow.Subtract(TimeSpan.FromSeconds(_queueReleaseSeconds))))
-                    {
-                        _logger.LogDebug("Expiring active request {guid} slot {slot}", _userQueueRequests[i].UserRequest.RequestId, i);
-                        _userQueueRequests[i] = null;
-                    }
+                    if (_userQueueRequests[i] != null) continue;
 
-                    if (!_queue.Any()) return;
-
-                    if (_userQueueRequests[i] == null)
+                    while (true)
                     {
-                        bool enqueued = false;
-                        while (!enqueued)
+                        if (!_priorityQueue.All(u => _cachedFileProvider.AnyFilesDownloading(u.FileIds))
+                            && _priorityQueue.TryDequeue(out var prioRequest))
                         {
-                            if (_priorityQueue.TryDequeue(out var prioRequest))
+                            if (prioRequest.IsCancelled)
                             {
-                                if (_queueRemoval.TryGetValue(prioRequest.RequestId, out string user) && string.Equals(user, prioRequest.User, StringComparison.Ordinal))
-                                {
-                                    _logger.LogDebug("Request cancelled: {requestId} by {user}", prioRequest.RequestId, user);
-                                    _queueRemoval.Remove(prioRequest.RequestId, out _);
-                                    continue;
-                                }
-
-                                await DequeueIntoSlotAsync(prioRequest, i).ConfigureAwait(false);
-                                enqueued = true;
-                                break;
+                                continue;
                             }
 
-                            if (_queue.TryDequeue(out var request))
+                            if (_cachedFileProvider.AnyFilesDownloading(prioRequest.FileIds))
                             {
-                                if (_queueRemoval.TryGetValue(request.RequestId, out string user) && string.Equals(user, request.User, StringComparison.Ordinal))
-                                {
-                                    _logger.LogDebug("Request cancelled: {requestId} by {user}", request.RequestId, user);
-                                    _queueRemoval.Remove(request.RequestId, out _);
-                                    continue;
-                                }
+                                _priorityQueue.Enqueue(prioRequest);
+                                continue;
+                            }
 
-                                await DequeueIntoSlotAsync(request, i).ConfigureAwait(false);
-                                enqueued = true;
-                            }
-                            else
-                            {
-                                enqueued = true;
-                            }
+                            DequeueIntoSlot(prioRequest, i);
+                            break;
                         }
+
+                        if (!_queue.All(u => _cachedFileProvider.AnyFilesDownloading(u.FileIds))
+                            && _queue.TryDequeue(out var request))
+                        {
+                            if (request.IsCancelled)
+                            {
+                                continue;
+                            }
+
+                            if (_cachedFileProvider.AnyFilesDownloading(request.FileIds))
+                            {
+                                _queue.Enqueue(request);
+                                continue;
+                            }
+
+                            DequeueIntoSlot(request, i);
+                            break;
+                        }
+
+                        break;
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Error during inside queue processing");
                 }
-            });
+            }
         }
         catch (Exception ex)
         {
@@ -260,6 +214,9 @@ public class RequestQueueService : IHostedService
         _metrics.SetGaugeTo(MetricsAPI.GaugeQueueFree, _userQueueRequests.Count(c => c == null));
         _metrics.SetGaugeTo(MetricsAPI.GaugeQueueActive, _userQueueRequests.Count(c => c != null && c.IsActive));
         _metrics.SetGaugeTo(MetricsAPI.GaugeQueueInactive, _userQueueRequests.Count(c => c != null && !c.IsActive));
-        _metrics.SetGaugeTo(MetricsAPI.GaugeDownloadQueue, _queue.Count);
+        _metrics.SetGaugeTo(MetricsAPI.GaugeDownloadQueue, _queue.Count(q => !q.IsCancelled));
+        _metrics.SetGaugeTo(MetricsAPI.GaugeDownloadQueueCancelled, _queue.Count(q => q.IsCancelled));
+        _metrics.SetGaugeTo(MetricsAPI.GaugeDownloadPriorityQueue, _priorityQueue.Count(q => !q.IsCancelled));
+        _metrics.SetGaugeTo(MetricsAPI.GaugeDownloadPriorityQueueCancelled, _priorityQueue.Count(q => q.IsCancelled));
     }
 }

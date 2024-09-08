@@ -93,7 +93,7 @@ public partial class MareHub : Hub<IMareHub>, IMareHub
     [Authorize(Policy = "Authenticated")]
     public override async Task OnConnectedAsync()
     {
-        _mareMetrics.IncGauge(MetricsAPI.GaugeConnections);
+        _mareMetrics.IncGaugeWithLabels(MetricsAPI.GaugeConnections, labels: Continent);
 
         try
         {
@@ -109,7 +109,7 @@ public partial class MareHub : Hub<IMareHub>, IMareHub
     [Authorize(Policy = "Authenticated")]
     public override async Task OnDisconnectedAsync(Exception exception)
     {
-        _mareMetrics.DecGauge(MetricsAPI.GaugeConnections);
+        _mareMetrics.DecGaugeWithLabels(MetricsAPI.GaugeConnections, labels: Continent);
 
         try
         {
@@ -120,9 +120,6 @@ public partial class MareHub : Hub<IMareHub>, IMareHub
             await RemoveUserFromRedis().ConfigureAwait(false);
 
             await SendOfflineToAllPairedUsers().ConfigureAwait(false);
-
-            _dbContext.RemoveRange(_dbContext.Files.Where(f => !f.Uploaded && f.UploaderUID == UserUID));
-            await _dbContext.SaveChangesAsync().ConfigureAwait(false);
         }
         catch { }
 
