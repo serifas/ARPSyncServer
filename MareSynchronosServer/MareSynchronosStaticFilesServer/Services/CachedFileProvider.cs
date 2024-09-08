@@ -15,6 +15,7 @@ public sealed class CachedFileProvider : IDisposable
     private readonly FileStatisticsService _fileStatisticsService;
     private readonly MareMetrics _metrics;
     private readonly ServerTokenGenerator _generator;
+    private readonly ITouchHashService _touchService;
     private readonly Uri _remoteCacheSourceUri;
     private readonly bool _useColdStorage;
     private readonly string _hotStoragePath;
@@ -28,7 +29,7 @@ public sealed class CachedFileProvider : IDisposable
     private bool _isDistributionServer;
 
     public CachedFileProvider(IConfigurationService<StaticFilesServerConfiguration> configuration, ILogger<CachedFileProvider> logger,
-        FileStatisticsService fileStatisticsService, MareMetrics metrics, ServerTokenGenerator generator)
+        FileStatisticsService fileStatisticsService, MareMetrics metrics, ServerTokenGenerator generator, ITouchHashService touchService)
     {
         AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
         _configuration = configuration;
@@ -36,6 +37,7 @@ public sealed class CachedFileProvider : IDisposable
         _fileStatisticsService = fileStatisticsService;
         _metrics = metrics;
         _generator = generator;
+        _touchService = touchService;
         _remoteCacheSourceUri = configuration.GetValueOrDefault<Uri>(nameof(StaticFilesServerConfiguration.DistributionFileServerAddress), null);
         _isDistributionServer = configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.IsDistributionNode), false);
         _useColdStorage = configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.UseColdStorage), false);
@@ -111,16 +113,15 @@ public sealed class CachedFileProvider : IDisposable
 
         if (string.IsNullOrEmpty(_coldStoragePath)) return false;
 
-        var coldStorageFilePath = FilePathUtil.GetFileInfoForHash(_coldStoragePath, hash);
+        var coldStorageFilePath = FilePathUtil.GetFilePath(_coldStoragePath, hash);
         if (coldStorageFilePath == null) return false;
 
         try
         {
             _logger.LogDebug("Copying {hash} from cold storage: {path}", hash, coldStorageFilePath);
             var tempFileName = destinationFilePath + ".dl";
-            File.Copy(coldStorageFilePath.FullName, tempFileName, true);
+            File.Copy(coldStorageFilePath, tempFileName, true);
             File.Move(tempFileName, destinationFilePath, true);
-            coldStorageFilePath.LastAccessTimeUtc = DateTime.UtcNow;
             var destinationFile = new FileInfo(destinationFilePath);
             destinationFile.LastAccessTimeUtc = DateTime.UtcNow;
             destinationFile.CreationTimeUtc = DateTime.UtcNow;
@@ -180,8 +181,9 @@ public sealed class CachedFileProvider : IDisposable
     {
         var fi = FilePathUtil.GetFileInfoForHash(_hotStoragePath, hash);
         if (fi == null) return null;
-
         fi.LastAccessTimeUtc = DateTime.UtcNow;
+
+        _touchService.TouchColdHash(hash);
 
         _fileStatisticsService.LogFile(hash, fi.Length);
 
@@ -213,6 +215,11 @@ public sealed class CachedFileProvider : IDisposable
         }
 
         return GetLocalFileStream(hash);
+    }
+
+    public void TouchColdHash(string hash)
+    {
+        _touchService.TouchColdHash(hash);
     }
 
     public bool AnyFilesDownloading(List<string> hashes)

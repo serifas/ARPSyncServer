@@ -175,6 +175,17 @@ public class Startup
             services.AddHostedService(p => (MareConfigurationServiceClient<StaticFilesServerConfiguration>)p.GetService<IConfigurationService<StaticFilesServerConfiguration>>());
         }
 
+        if (_isDistributionNode)
+        {
+            services.AddSingleton<ITouchHashService, ColdTouchHashService>();
+            services.AddHostedService(p => p.GetService<ITouchHashService>());
+        }
+        else
+        {
+            services.AddSingleton<ITouchHashService, ShardTouchMessageService>();
+            services.AddHostedService(p => p.GetService<ITouchHashService>());
+        }
+
         // controller setup
         services.AddControllers().ConfigureApplicationPartManager(a =>
         {

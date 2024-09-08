@@ -26,4 +26,21 @@ public class DistributionController : ControllerBase
 
         return File(fs, "application/octet-stream");
     }
+
+    [HttpPost("touch")]
+    [Authorize(Policy = "Internal")]
+    public IActionResult TouchFiles([FromBody] string[] files)
+    {
+        _logger.LogInformation($"TouchFiles:{MareUser}:{files.Length}");
+
+        if (files.Length == 0)
+            return Ok();
+
+        Task.Run(() => {
+            foreach (var file in files)
+                _cachedFileProvider.TouchColdHash(file);
+        }).ConfigureAwait(false);
+
+        return Ok();
+    }
 }
