@@ -36,7 +36,7 @@ public class ShardClientReadyMessageService : IClientReadyMessageService
             };
             msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _tokenGenerator.Token);
 
-            _logger.LogInformation("Sending Client Ready for {uid}:{requestId} to {path}", uid, requestId, path);
+            _logger.LogDebug("Sending Client Ready for {uid}:{requestId} to {path}", uid, requestId, path);
             try
             {
                 using var result = await _httpClient.SendAsync(msg).ConfigureAwait(false);
