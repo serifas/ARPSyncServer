@@ -1,10 +1,13 @@
 ﻿using ByteSizeLib;
+using MareSynchronos.API.Dto.Files;
 using MareSynchronosShared.Data;
 using MareSynchronosShared.Metrics;
 using MareSynchronosShared.Models;
 using MareSynchronosShared.Services;
 using MareSynchronosStaticFilesServer.Utils;
+using MessagePack.Formatters;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting.Systemd;
 
 namespace MareSynchronosStaticFilesServer.Services;
 
@@ -24,11 +27,16 @@ public class FileCleanupService : IHostedService
 
     private CancellationTokenSource _cleanupCts;
 
+    private int HotStorageMinimumRetention => _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.MinimumFileRetentionPeriodInDays), 7);
     private int HotStorageRetention => _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.UnusedFileRetentionPeriodInDays), 14);
     private double HotStorageSize => _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.CacheSizeHardLimitInGiB), -1.0);
 
+    private int ColdStorageMinimumRetention => _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.ColdStorageMinimumFileRetentionPeriodInDays), 60);
     private int ColdStorageRetention => _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.ColdStorageUnusedFileRetentionPeriodInDays), 60);
     private double ColdStorageSize => _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.ColdStorageSizeHardLimitInGiB), -1.0);
+
+    private double SmallSizeKiB => _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.CacheSmallSizeThresholdKiB), 64.0);
+    private double LargeSizeKiB => _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.CacheLargeSizeThresholdKiB), 1024.0);
 
     private int ForcedDeletionAfterHours => _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.ForcedDeletionOfFilesAfterHours), -1);
     private int CleanupCheckMinutes => _configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.CleanupCheckInMinutes), 15);
@@ -78,7 +86,7 @@ public class FileCleanupService : IHostedService
         return Task.CompletedTask;
     }
 
-    private List<string> CleanUpFilesBeyondSizeLimit(List<FileInfo> files, double sizeLimit, CancellationToken ct)
+    private List<string> CleanUpFilesBeyondSizeLimit(List<FileInfo> files, double sizeLimit, double minTTL, double maxTTL, CancellationToken ct)
     {
         var removedFiles = new List<string>();
         if (sizeLimit <= 0)
@@ -86,20 +94,67 @@ public class FileCleanupService : IHostedService
             return removedFiles;
         }
 
+        var smallSize = SmallSizeKiB * 1024.0;
+        var largeSize = LargeSizeKiB * 1024.0;
+        var now = DateTime.Now;
+
+        // Avoid nonsense in future calculations
+        if (smallSize < 0.0)
+            smallSize = 0.0;
+
+        if (largeSize < smallSize)
+            largeSize = smallSize;
+
+        if (minTTL < 0.0)
+            minTTL = 0.0;
+
+        if (maxTTL < minTTL)
+            maxTTL = minTTL;
+
+        // Calculates a deletion priority to prioritize deletion of larger files over a configured TTL range based on a file's size.
+        // This is intended to be applied to the hot cache, as the cost of recovering many small files is greater than a single large file.
+        // Example (minTTL=7, maxTTL=30):
+        //  - A 10MB file was last accessed 5 days ago. Its calculated optimum TTL is 7 days. result = 0.7143
+        //  - A 50kB file was last accessed 10 days ago. Its calculated optimum TTL is 30 days. result = 0.3333
+        //  The larger file will be deleted with a higher priority than the smaller file.
+        double CalculateTTLProgression(FileInfo file)
+        {
+            var fileLength = (double)file.Length;
+            var fileAgeDays = (now - file.LastAccessTime).TotalDays;
+            var sizeNorm = Math.Clamp((fileLength - smallSize) / (largeSize - smallSize), 0.0, 1.0);
+            // Using Math.Sqrt(sizeNorm) would create a more logical scaling curve, but it barely matters
+            var ttlDayRange = (maxTTL - minTTL) * (1.0 - sizeNorm);
+            var daysPastMinTTL = Math.Max(fileAgeDays - minTTL, 0.0);
+            // There is some creativity in choosing an upper bound here:
+            //  - With no upper bound, any file larger than `largeSize` is always the highest priority for deletion once it passes its calculated TTL
+            //  - With 1.0 as an upper bound, all files older than `maxTTL` will have the same priority regardless of size
+            //  - Using maxTTL/minTTL chooses a logical cut-off point where any files old enough to be affected would have been cleaned up already
+            var ttlProg = Math.Clamp(daysPastMinTTL / ttlDayRange, 0.0, maxTTL / minTTL);
+            return ttlProg;
+        }
+
         try
         {
-            _logger.LogInformation("Cleaning up files beyond the cache size limit of {cacheSizeLimit} GiB", sizeLimit);
-            var allLocalFiles = files;
-            var totalCacheSizeInBytes = allLocalFiles.Sum(s => s.Length);
-            long cacheSizeLimitInBytes = (long)ByteSize.FromGibiBytes(sizeLimit).Bytes;
-            while (totalCacheSizeInBytes > cacheSizeLimitInBytes && allLocalFiles.Count != 0 && !ct.IsCancellationRequested)
+            // Since we already have the file list sorted by access time, the list index is incorporated in to
+            // the dictionary key to preserve it as a secondary ordering
+            var sortedFiles = new PriorityQueue<FileInfo, (double, int)>();
+
+            foreach (var (file, i) in files.Select((file, i) => ( file, i )))
             {
-                var oldestFile = allLocalFiles[0];
-                allLocalFiles.RemoveAt(0);
-                totalCacheSizeInBytes -= oldestFile.Length;
-                _logger.LogInformation("Deleting {oldestFile} with size {size}MiB", oldestFile.FullName, ByteSize.FromBytes(oldestFile.Length).MebiBytes);
-                oldestFile.Delete();
-                removedFiles.Add(oldestFile.Name);
+                double ttlProg = CalculateTTLProgression(file);
+                sortedFiles.Enqueue(file, (-ttlProg, i));
+            }
+
+            _logger.LogInformation("Cleaning up files beyond the cache size limit of {cacheSizeLimit} GiB", sizeLimit);
+            var totalCacheSizeInBytes = files.Sum(s => s.Length);
+            long cacheSizeLimitInBytes = (long)ByteSize.FromGibiBytes(sizeLimit).Bytes;
+            while (totalCacheSizeInBytes > cacheSizeLimitInBytes && sortedFiles.Count != 0 && !ct.IsCancellationRequested)
+            {
+                var file = sortedFiles.Dequeue();
+                totalCacheSizeInBytes -= file.Length;
+                _logger.LogInformation("Deleting {file} with size {size:N2}MiB", file.FullName, ByteSize.FromBytes(file.Length).MebiBytes);
+                file.Delete();
+                removedFiles.Add(file.Name);
             }
             files.RemoveAll(f => removedFiles.Contains(f.Name, StringComparer.InvariantCultureIgnoreCase));
         }
@@ -156,13 +211,13 @@ public class FileCleanupService : IHostedService
             {
                 if (file.LastAccessTime < lastAccessCutoffTime)
                 {
-                    _logger.LogInformation("File outdated: {fileName}, {fileSize}MiB", file.Name, ByteSize.FromBytes(file.Length).MebiBytes);
+                    _logger.LogInformation("File outdated: {fileName}, {fileSize:N2}MiB", file.Name, ByteSize.FromBytes(file.Length).MebiBytes);
                     file.Delete();
                     removedFiles.Add(file.Name);
                 }
                 else if (forcedDeletionAfterHours > 0 && file.LastWriteTime < forcedDeletionCutoffTime)
                 {
-                    _logger.LogInformation("File forcefully deleted: {fileName}, {fileSize}MiB", file.Name, ByteSize.FromBytes(file.Length).MebiBytes);
+                    _logger.LogInformation("File forcefully deleted: {fileName}, {fileSize:N2}MiB", file.Name, ByteSize.FromBytes(file.Length).MebiBytes);
                     file.Delete();
                     removedFiles.Add(file.Name);
                 }
@@ -214,7 +269,7 @@ public class FileCleanupService : IHostedService
                         CleanUpOutdatedFiles(coldFiles, ColdStorageRetention, ForcedDeletionAfterHours, ct)
                     );
                     removedColdFiles.AddRange(
-                        CleanUpFilesBeyondSizeLimit(coldFiles, ColdStorageSize, ct)
+                        CleanUpFilesBeyondSizeLimit(coldFiles, ColdStorageSize, ColdStorageMinimumRetention, ColdStorageRetention, ct)
                     );
 
                     // Remove cold storage files are deleted from the database, if we are the main file server
@@ -245,7 +300,7 @@ public class FileCleanupService : IHostedService
                     CleanUpOutdatedFiles(hotFiles, HotStorageRetention, forcedDeletionAfterHours: _useColdStorage ? ForcedDeletionAfterHours : -1, ct)
                 );
                 removedHotFiles.AddRange(
-                    CleanUpFilesBeyondSizeLimit(hotFiles, HotStorageSize, ct)
+                    CleanUpFilesBeyondSizeLimit(hotFiles, HotStorageSize, HotStorageMinimumRetention, HotStorageRetention, ct)
                 );
 
                 if (_isMain)

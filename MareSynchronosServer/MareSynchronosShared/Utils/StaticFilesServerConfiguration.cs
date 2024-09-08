@@ -12,6 +12,7 @@ public class StaticFilesServerConfiguration : MareConfigurationBase
     public bool DistributionFileServerForceHTTP2 { get; set; } = false;
     public int ForcedDeletionOfFilesAfterHours { get; set; } = -1;
     public double CacheSizeHardLimitInGiB { get; set; } = -1;
+    public int MinimumFileRetentionPeriodInDays { get; set; } = 7;
     public int UnusedFileRetentionPeriodInDays { get; set; } = 14;
     public string CacheDirectory { get; set; }
     public int DownloadQueueSize { get; set; } = 50;
@@ -22,7 +23,10 @@ public class StaticFilesServerConfiguration : MareConfigurationBase
     public bool UseColdStorage { get; set; } = false;
     public string? ColdStorageDirectory { get; set; } = null;
     public double ColdStorageSizeHardLimitInGiB { get; set; } = -1;
+    public int ColdStorageMinimumFileRetentionPeriodInDays { get; set; } = 30;
     public int ColdStorageUnusedFileRetentionPeriodInDays { get; set; } = 30;
+    public double CacheSmallSizeThresholdKiB { get; set; } = 64;
+    public double CacheLargeSizeThresholdKiB { get; set; } = 1024;
     [RemoteConfiguration]
     public Uri CdnFullUrl { get; set; } = null;
     [RemoteConfiguration]
@@ -41,8 +45,12 @@ public class StaticFilesServerConfiguration : MareConfigurationBase
         sb.AppendLine($"{nameof(UseColdStorage)} => {UseColdStorage}");
         sb.AppendLine($"{nameof(ColdStorageDirectory)} => {ColdStorageDirectory}");
         sb.AppendLine($"{nameof(ColdStorageSizeHardLimitInGiB)} => {ColdStorageSizeHardLimitInGiB}");
+        sb.AppendLine($"{nameof(ColdStorageMinimumFileRetentionPeriodInDays)} => {ColdStorageMinimumFileRetentionPeriodInDays}");
         sb.AppendLine($"{nameof(ColdStorageUnusedFileRetentionPeriodInDays)} => {ColdStorageUnusedFileRetentionPeriodInDays}");
+        sb.AppendLine($"{nameof(MinimumFileRetentionPeriodInDays)} => {MinimumFileRetentionPeriodInDays}");
         sb.AppendLine($"{nameof(UnusedFileRetentionPeriodInDays)} => {UnusedFileRetentionPeriodInDays}");
+        sb.AppendLine($"{nameof(CacheSmallSizeThresholdKiB)} => {CacheSmallSizeThresholdKiB}");
+        sb.AppendLine($"{nameof(CacheLargeSizeThresholdKiB)} => {CacheLargeSizeThresholdKiB}");
         sb.AppendLine($"{nameof(CacheDirectory)} => {CacheDirectory}");
         sb.AppendLine($"{nameof(DownloadQueueSize)} => {DownloadQueueSize}");
         sb.AppendLine($"{nameof(DownloadQueueReleaseSeconds)} => {DownloadQueueReleaseSeconds}");
