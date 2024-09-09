@@ -114,7 +114,7 @@ public sealed class CachedFileProvider : IDisposable
         if (string.IsNullOrEmpty(_coldStoragePath)) return false;
 
         var coldStorageFilePath = FilePathUtil.GetFilePath(_coldStoragePath, hash);
-        if (coldStorageFilePath == null) return false;
+        if (!File.Exists(coldStorageFilePath)) return false;
 
         try
         {

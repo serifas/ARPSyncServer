@@ -101,7 +101,7 @@ public class ShardTouchMessageService : ITouchHashService
                 }
                 if (hashes.Count > 0)
                     await SendTouches(hashes);
-                await Task.Delay(TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromSeconds(60), ct).ConfigureAwait(false);
             }
             catch (Exception e)
             {

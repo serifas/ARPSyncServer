@@ -1,5 +1,6 @@
 using MareSynchronosShared.Services;
 using MareSynchronosStaticFilesServer.Utils;
+using System.Collections.Concurrent;
 
 namespace MareSynchronosStaticFilesServer.Services;
 
@@ -10,12 +11,13 @@ public class ColdTouchHashService : ITouchHashService
     private readonly IConfigurationService<StaticFilesServerConfiguration> _configuration;
 
     private readonly bool _useColdStorage;
-	private readonly string _coldStoragePath;
+    private readonly string _coldStoragePath;
 
-	// Debounce multiple updates towards the same file
-	private readonly Dictionary<string, DateTime> _lastUpdateTimesUtc = new(1009, StringComparer.Ordinal);
-	private int _cleanupCounter = 0;
-	private const double _debounceTimeSecs = 90.0;
+    // Debounce multiple updates towards the same file
+    private readonly ConcurrentDictionary<string, DateTime> _lastUpdateTimesUtc = new(StringComparer.Ordinal);
+    private int _cleanupCounter = 0;
+    private object _cleanupLockObj = new();
+    private const double _debounceTimeSecs = 900.0;
 
     public ColdTouchHashService(ILogger<ColdTouchHashService> logger, IConfigurationService<StaticFilesServerConfiguration> configuration)
     {
@@ -37,31 +39,41 @@ public class ColdTouchHashService : ITouchHashService
 
     public void TouchColdHash(string hash)
     {
-		if (!_useColdStorage)
-			return;
+        if (!_useColdStorage)
+            return;
 
-		var nowUtc = DateTime.UtcNow;
+        var nowUtc = DateTime.UtcNow;
 
-		// Clean up debounce dictionary regularly
-		if (_cleanupCounter++ >= 1000)
-		{
-			foreach (var entry in _lastUpdateTimesUtc.Where(entry => (nowUtc - entry.Value).TotalSeconds >= _debounceTimeSecs).ToList())
-				_lastUpdateTimesUtc.Remove(entry.Key);
+        // Clean up debounce dictionary regularly
+        if (_cleanupCounter++ >= 1000)
+        {
             _cleanupCounter = 0;
-		}
+            if (Monitor.TryEnter(_cleanupLockObj))
+            {
+                try
+                {
+                    foreach (var entry in _lastUpdateTimesUtc.Where(entry => (nowUtc - entry.Value).TotalSeconds >= _debounceTimeSecs).ToList())
+                        _lastUpdateTimesUtc.TryRemove(entry.Key, out _);
+                }
+                finally
+                {
+                    Monitor.Exit(_cleanupLockObj);
+                }
+            }
+        }
 
-		// Ignore multiple updates within a 90 second window of the first
-		if (_lastUpdateTimesUtc.TryGetValue(hash, out var lastUpdateTimeUtc) && (nowUtc - lastUpdateTimeUtc).TotalSeconds < _debounceTimeSecs)
+        // Ignore multiple updates within a time window of the first
+        if (_lastUpdateTimesUtc.TryGetValue(hash, out var lastUpdateTimeUtc) && (nowUtc - lastUpdateTimeUtc).TotalSeconds < _debounceTimeSecs)
         {
             _logger.LogDebug($"Debounced touch for {hash}");
-			return;
+            return;
         }
 
         var fileInfo = FilePathUtil.GetFileInfoForHash(_coldStoragePath, hash);
         if (fileInfo != null)
         {
             _logger.LogDebug($"Touching {fileInfo.Name}");
-		    fileInfo.LastAccessTimeUtc = nowUtc;
+            fileInfo.LastAccessTimeUtc = nowUtc;
             _lastUpdateTimesUtc.TryAdd(hash, nowUtc);
         }
     }
