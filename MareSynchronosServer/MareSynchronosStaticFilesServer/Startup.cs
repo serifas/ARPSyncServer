@@ -27,6 +27,7 @@ public class Startup
 {
     private bool _isMain;
     private bool _isDistributionNode;
+    private bool _hasDistributionUpstream;
     private readonly ILogger<Startup> _logger;
 
     public Startup(IConfiguration configuration, ILogger<Startup> logger)
@@ -35,6 +36,7 @@ public class Startup
         _logger = logger;
         var mareSettings = Configuration.GetRequiredSection("MareSynchronos");
         _isDistributionNode = mareSettings.GetValue(nameof(StaticFilesServerConfiguration.IsDistributionNode), false);
+        _hasDistributionUpstream = !string.IsNullOrEmpty(mareSettings.GetValue(nameof(StaticFilesServerConfiguration.DistributionFileServerAddress), string.Empty));
         _isMain = string.IsNullOrEmpty(mareSettings.GetValue(nameof(StaticFilesServerConfiguration.MainFileServerAddress), string.Empty)) && _isDistributionNode;
     }
 
@@ -175,7 +177,7 @@ public class Startup
             services.AddHostedService(p => (MareConfigurationServiceClient<StaticFilesServerConfiguration>)p.GetService<IConfigurationService<StaticFilesServerConfiguration>>());
         }
 
-        if (_isDistributionNode)
+        if (!_hasDistributionUpstream)
         {
             services.AddSingleton<ITouchHashService, ColdTouchHashService>();
             services.AddHostedService(p => p.GetService<ITouchHashService>());
