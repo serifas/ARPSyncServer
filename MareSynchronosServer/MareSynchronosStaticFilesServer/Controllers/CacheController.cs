@@ -10,15 +10,15 @@ namespace MareSynchronosStaticFilesServer.Controllers;
 [Route(MareFiles.Cache)]
 public class CacheController : ControllerBase
 {
-    private readonly RequestFileStreamResultFactory _requestFileStreamResultFactory;
+    private readonly RequestBlockFileListResultFactory _requestBlockFileListResultFactory;
     private readonly CachedFileProvider _cachedFileProvider;
     private readonly RequestQueueService _requestQueue;
     private readonly FileStatisticsService _fileStatisticsService;
 
-    public CacheController(ILogger<CacheController> logger, RequestFileStreamResultFactory requestFileStreamResultFactory,
+    public CacheController(ILogger<CacheController> logger, RequestBlockFileListResultFactory requestBlockFileListResultFactory,
         CachedFileProvider cachedFileProvider, RequestQueueService requestQueue, FileStatisticsService fileStatisticsService) : base(logger)
     {
-        _requestFileStreamResultFactory = requestFileStreamResultFactory;
+        _requestBlockFileListResultFactory = requestBlockFileListResultFactory;
         _cachedFileProvider = cachedFileProvider;
         _requestQueue = requestQueue;
         _fileStatisticsService = fileStatisticsService;
@@ -33,23 +33,19 @@ public class CacheController : ControllerBase
 
         _requestQueue.ActivateRequest(requestId);
 
-        Response.ContentType = "application/octet-stream";
-
         long requestSize = 0;
-        var streamList = new List<Stream>();
+        var fileList = new List<FileInfo>(request.FileIds.Count);
 
         foreach (var file in request.FileIds)
         {
-            var fs = await _cachedFileProvider.GetAndDownloadFileStream(file);
-            if (fs == null) continue;
-            var headerBytes = Encoding.ASCII.GetBytes("#" + file + ":" + fs.Length.ToString(CultureInfo.InvariantCulture) + "#");
-            streamList.Add(new MemoryStream(headerBytes));
-            streamList.Add(fs);
-            requestSize += fs.Length;
+            var fi = await _cachedFileProvider.GetAndDownloadFile(file);
+            if (fi == null) continue;
+            requestSize += fi.Length;
+            fileList.Add(fi);
         }
 
         _fileStatisticsService.LogRequest(requestSize);
 
-        return _requestFileStreamResultFactory.Create(requestId, new ConcatenatedStreamReader(streamList));
+        return _requestBlockFileListResultFactory.Create(requestId, fileList);
     }
 }

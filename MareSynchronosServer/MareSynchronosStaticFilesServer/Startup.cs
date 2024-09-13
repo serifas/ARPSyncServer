@@ -86,7 +86,7 @@ public class Startup
         services.AddSingleton<CachedFileProvider>();
         services.AddHostedService<FileCleanupService>();
         services.AddSingleton<FileStatisticsService>();
-        services.AddSingleton<RequestFileStreamResultFactory>();
+        services.AddSingleton<RequestBlockFileListResultFactory>();
         services.AddSingleton<ServerTokenGenerator>();
         services.AddSingleton<RequestQueueService>();
         services.AddHostedService(p => p.GetService<RequestQueueService>());
