@@ -162,6 +162,7 @@ public sealed class CachedFileProvider : IDisposable
                 {
                     _metrics.IncGauge(MetricsAPI.GaugeFilesDownloadingFromCache);
                     await DownloadTask(hash).ConfigureAwait(false);
+                    TryCopyFromColdStorage(hash, FilePathUtil.GetFilePath(_hotStoragePath, hash));
                 }
                 catch (Exception ex)
                 {
@@ -177,20 +178,7 @@ public sealed class CachedFileProvider : IDisposable
         _downloadSemaphore.Release();
     }
 
-    public FileStream? GetLocalFileStream(string hash)
-    {
-        var fi = FilePathUtil.GetFileInfoForHash(_hotStoragePath, hash);
-        if (fi == null) return null;
-        fi.LastAccessTimeUtc = DateTime.UtcNow;
-
-        _touchService.TouchColdHash(hash);
-
-        _fileStatisticsService.LogFile(hash, fi.Length);
-
-        return new FileStream(fi.FullName, FileMode.Open, FileAccess.Read, FileShare.Inheritable | FileShare.Read);
-    }
-
-    public async Task<FileStream?> GetAndDownloadFileStream(string hash)
+    public async Task<FileInfo?> GetAndDownloadFile(string hash)
     {
         await DownloadFileWhenRequired(hash).ConfigureAwait(false);
 
@@ -214,7 +202,22 @@ public sealed class CachedFileProvider : IDisposable
             }
         }
 
-        return GetLocalFileStream(hash);
+        var fi = FilePathUtil.GetFileInfoForHash(_hotStoragePath, hash);
+        if (fi == null)
+            return null;
+
+        fi.LastAccessTimeUtc = DateTime.UtcNow;
+        _touchService.TouchColdHash(hash);
+
+        _fileStatisticsService.LogFile(hash, fi.Length);
+
+        return fi;
+    }
+
+    public async Task<FileStream?> GetAndDownloadFileStream(string hash)
+    {
+        var fi = await GetAndDownloadFile(hash).ConfigureAwait(false);
+        return new FileStream(fi.FullName, FileMode.Open, FileAccess.Read, FileShare.Inheritable | FileShare.Read);
     }
 
     public void TouchColdHash(string hash)

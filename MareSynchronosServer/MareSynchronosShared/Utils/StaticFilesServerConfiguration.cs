@@ -31,6 +31,10 @@ public class StaticFilesServerConfiguration : MareConfigurationBase
     public Uri CdnFullUrl { get; set; } = null;
     [RemoteConfiguration]
     public List<CdnShardConfiguration> CdnShardConfiguration { get; set; } = new();
+
+    public bool UseXAccelRedirect { get; set; } = false;
+    public string XAccelRedirectPrefix { get; set; } = "/_internal/mare-files/";
+
     public override string ToString()
     {
         StringBuilder sb = new();
@@ -55,6 +59,7 @@ public class StaticFilesServerConfiguration : MareConfigurationBase
         sb.AppendLine($"{nameof(DownloadQueueSize)} => {DownloadQueueSize}");
         sb.AppendLine($"{nameof(DownloadQueueReleaseSeconds)} => {DownloadQueueReleaseSeconds}");
         sb.AppendLine($"{nameof(CdnShardConfiguration)} => {string.Join(", ", CdnShardConfiguration)}");
+        sb.AppendLine($"{nameof(UseXAccelRedirect)} => {UseXAccelRedirect}");
         return sb.ToString();
     }
 }

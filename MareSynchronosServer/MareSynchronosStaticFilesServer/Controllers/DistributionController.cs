@@ -1,4 +1,5 @@
 ﻿using MareSynchronos.API.Routes;
+using MareSynchronosShared.Services;
 using MareSynchronosStaticFilesServer.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -9,10 +10,13 @@ namespace MareSynchronosStaticFilesServer.Controllers;
 public class DistributionController : ControllerBase
 {
     private readonly CachedFileProvider _cachedFileProvider;
+    private readonly IConfigurationService<StaticFilesServerConfiguration> _configuration;
 
-    public DistributionController(ILogger<DistributionController> logger, CachedFileProvider cachedFileProvider) : base(logger)
+    public DistributionController(ILogger<DistributionController> logger, CachedFileProvider cachedFileProvider,
+        IConfigurationService<StaticFilesServerConfiguration> configuration) : base(logger)
     {
         _cachedFileProvider = cachedFileProvider;
+        _configuration = configuration;
     }
 
     [HttpGet(MareFiles.Distribution_Get)]
@@ -21,10 +25,19 @@ public class DistributionController : ControllerBase
     {
         _logger.LogInformation($"GetFile:{MareUser}:{file}");
 
-        var fs = await _cachedFileProvider.GetAndDownloadFileStream(file);
-        if (fs == null) return NotFound();
+        var fi = await _cachedFileProvider.GetAndDownloadFile(file);
+        if (fi == null) return NotFound();
 
-        return File(fs, "application/octet-stream");
+        if (_configuration.GetValueOrDefault(nameof(StaticFilesServerConfiguration.UseXAccelRedirect), false))
+        {
+            var prefix = _configuration.GetValue<string>(nameof(StaticFilesServerConfiguration.XAccelRedirectPrefix));
+            Response.Headers.Append("X-Accel-Redirect", Path.Combine(prefix, file));
+            return Ok();
+        }
+        else
+        {
+            return PhysicalFile(fi.FullName, "application/octet-stream");
+        }
     }
 
     [HttpPost("touch")]
