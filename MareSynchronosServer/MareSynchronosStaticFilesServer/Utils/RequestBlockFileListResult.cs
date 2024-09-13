@@ -1,4 +1,5 @@
 using MareSynchronosShared.Metrics;
+using MareSynchronosShared.Services;
 using MareSynchronosStaticFilesServer.Services;
 using Microsoft.AspNetCore.Mvc;
 using System.Globalization;
@@ -12,14 +13,17 @@ public class RequestBlockFileListResult : IActionResult
     private readonly RequestQueueService _requestQueueService;
     private readonly MareMetrics _mareMetrics;
     private readonly IEnumerable<FileInfo> _fileList;
+    private readonly IConfigurationService<StaticFilesServerConfiguration> _configurationService;
 
-    public RequestBlockFileListResult(Guid requestId, RequestQueueService requestQueueService, MareMetrics mareMetrics, IEnumerable<FileInfo> fileList)
+    public RequestBlockFileListResult(Guid requestId, RequestQueueService requestQueueService, MareMetrics mareMetrics, IEnumerable<FileInfo> fileList,
+        IConfigurationService<StaticFilesServerConfiguration> configurationService)
     {
         _requestId = requestId;
         _requestQueueService = requestQueueService;
         _mareMetrics = mareMetrics;
         _mareMetrics.IncGauge(MetricsAPI.GaugeCurrentDownloads);
         _fileList = fileList;
+        _configurationService = configurationService;
     }
 
     public async Task ExecuteResultAsync(ActionContext context)
@@ -28,13 +32,34 @@ public class RequestBlockFileListResult : IActionResult
         {
             ArgumentNullException.ThrowIfNull(context);
 
+            var useSSI = _configurationService.GetValueOrDefault(nameof(StaticFilesServerConfiguration.UseSSI), false);
+
             context.HttpContext.Response.StatusCode = 200;
-            context.HttpContext.Response.ContentType = "application/octet-stream";
+
+            if (useSSI)
+                context.HttpContext.Response.ContentType = _configurationService.GetValue<string>(nameof(StaticFilesServerConfiguration.SSIContentType));
+            else
+                context.HttpContext.Response.ContentType = "application/octet-stream";
+
+            string ssiFilePrefix = null;
+
+            if (useSSI)
+                ssiFilePrefix = _configurationService.GetValue<string>(nameof(StaticFilesServerConfiguration.XAccelRedirectPrefix));
 
             foreach (var file in _fileList)
             {
-                await context.HttpContext.Response.WriteAsync("#" + file.Name + ":" + file.Length.ToString(CultureInfo.InvariantCulture) + "#", Encoding.ASCII);
-                await context.HttpContext.Response.SendFileAsync(file.FullName);
+                if (useSSI)
+                {
+                    var internalName = Path.Combine(ssiFilePrefix, file.Name);
+                    await context.HttpContext.Response.WriteAsync(
+                        "#" + file.Name + ":" + file.Length.ToString(CultureInfo.InvariantCulture) + "#"
+                        + "<!--#include file=\"" + internalName + "\" -->", Encoding.ASCII);
+                }
+                else
+                {
+                    await context.HttpContext.Response.WriteAsync("#" + file.Name + ":" + file.Length.ToString(CultureInfo.InvariantCulture) + "#", Encoding.ASCII);
+                    await context.HttpContext.Response.SendFileAsync(file.FullName);
+                }
             }
         }
         catch

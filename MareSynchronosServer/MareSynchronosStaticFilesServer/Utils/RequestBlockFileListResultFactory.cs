@@ -19,6 +19,6 @@ public class RequestBlockFileListResultFactory
 
     public RequestBlockFileListResult Create(Guid requestId, IEnumerable<FileInfo> fileList)
     {
-        return new RequestBlockFileListResult(requestId, _requestQueueService, _metrics, fileList);
+        return new RequestBlockFileListResult(requestId, _requestQueueService, _metrics, fileList, _configurationService);
     }
 }

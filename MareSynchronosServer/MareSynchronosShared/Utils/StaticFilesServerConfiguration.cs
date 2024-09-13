@@ -34,6 +34,8 @@ public class StaticFilesServerConfiguration : MareConfigurationBase
 
     public bool UseXAccelRedirect { get; set; } = false;
     public string XAccelRedirectPrefix { get; set; } = "/_internal/mare-files/";
+    public bool UseSSI { get; set; } = false;
+    public string SSIContentType { get; set; } = "application/x-block-file-list";
 
     public override string ToString()
     {
