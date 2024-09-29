@@ -9,11 +9,13 @@ public class RequestController : ControllerBase
 {
     private readonly CachedFileProvider _cachedFileProvider;
     private readonly RequestQueueService _requestQueue;
+    private readonly FilePreFetchService _preFetchService;
 
-    public RequestController(ILogger<RequestController> logger, CachedFileProvider cachedFileProvider, RequestQueueService requestQueue) : base(logger)
+    public RequestController(ILogger<RequestController> logger, CachedFileProvider cachedFileProvider, RequestQueueService requestQueue, FilePreFetchService preFetchService) : base(logger)
     {
         _cachedFileProvider = cachedFileProvider;
         _requestQueue = requestQueue;
+        _preFetchService = preFetchService;
     }
 
     [HttpGet]
@@ -34,14 +36,21 @@ public class RequestController : ControllerBase
     {
         try
         {
-            foreach (var file in files)
+            var hashList = files.ToList();
+            var fileList = new List<FileInfo>();
+
+            foreach (var file in hashList)
             {
                 _logger.LogDebug("Prerequested file: " + file);
-                await _cachedFileProvider.DownloadFileWhenRequired(file).ConfigureAwait(false);
+                var fileInfo = await _cachedFileProvider.DownloadFileWhenRequired(file).ConfigureAwait(false);
+                if (fileInfo != null)
+                    fileList.Add(fileInfo);
             }
 
+            _preFetchService.PrefetchFiles(fileList);
+
             Guid g = Guid.NewGuid();
-            await _requestQueue.EnqueueUser(new(g, MareUser, files.ToList()), IsPriority, HttpContext.RequestAborted);
+            await _requestQueue.EnqueueUser(new(g, MareUser, hashList), IsPriority, HttpContext.RequestAborted);
 
             return Ok(g);
         }

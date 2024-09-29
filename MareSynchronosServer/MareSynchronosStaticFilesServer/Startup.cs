@@ -90,6 +90,8 @@ public class Startup
         services.AddSingleton<ServerTokenGenerator>();
         services.AddSingleton<RequestQueueService>();
         services.AddHostedService(p => p.GetService<RequestQueueService>());
+        services.AddSingleton<FilePreFetchService>();
+        services.AddHostedService(p => p.GetService<FilePreFetchService>());
         services.AddHostedService(m => m.GetService<FileStatisticsService>());
         services.AddSingleton<IConfigurationService<MareConfigurationAuthBase>, MareConfigurationServiceClient<MareConfigurationAuthBase>>();
         services.AddHostedService(p => (MareConfigurationServiceClient<MareConfigurationAuthBase>)p.GetService<IConfigurationService<MareConfigurationAuthBase>>());

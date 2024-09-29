@@ -100,7 +100,7 @@ public class ShardTouchMessageService : ITouchHashService
                     _touchHashSet.Clear();
                 }
                 if (hashes.Count > 0)
-                    await SendTouches(hashes);
+                    await SendTouches(hashes).ConfigureAwait(false);
                 await Task.Delay(TimeSpan.FromSeconds(60), ct).ConfigureAwait(false);
             }
             catch (Exception e)
@@ -115,7 +115,7 @@ public class ShardTouchMessageService : ITouchHashService
             _touchHashSet.Clear();
         }
         if (hashes.Count > 0)
-            await SendTouches(hashes);
+            await SendTouches(hashes).ConfigureAwait(false);
     }
 
     public void TouchColdHash(string hash)

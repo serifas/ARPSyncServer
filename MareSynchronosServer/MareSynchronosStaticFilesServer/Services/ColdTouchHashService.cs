@@ -64,16 +64,17 @@ public class ColdTouchHashService : ITouchHashService
 
         // Ignore multiple updates within a time window of the first
         if (_lastUpdateTimesUtc.TryGetValue(hash, out var lastUpdateTimeUtc) && (nowUtc - lastUpdateTimeUtc).TotalSeconds < _debounceTimeSecs)
-        {
-            _logger.LogDebug($"Debounced touch for {hash}");
             return;
-        }
 
         var fileInfo = FilePathUtil.GetFileInfoForHash(_coldStoragePath, hash);
         if (fileInfo != null)
         {
-            _logger.LogDebug($"Touching {fileInfo.Name}");
-            fileInfo.LastAccessTimeUtc = nowUtc;
+            _logger.LogTrace("Touching {fileName}", fileInfo.Name);
+            try
+            {
+                fileInfo.LastAccessTimeUtc = nowUtc;
+            }
+            catch (IOException) { return; }
             _lastUpdateTimesUtc.TryAdd(hash, nowUtc);
         }
     }

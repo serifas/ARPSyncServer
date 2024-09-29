@@ -123,35 +123,42 @@ public sealed class CachedFileProvider : IDisposable
             File.Copy(coldStorageFilePath, tempFileName, true);
             File.Move(tempFileName, destinationFilePath, true);
             var destinationFile = new FileInfo(destinationFilePath);
-            destinationFile.LastAccessTimeUtc = DateTime.UtcNow;
-            destinationFile.CreationTimeUtc = DateTime.UtcNow;
-            destinationFile.LastWriteTimeUtc = DateTime.UtcNow;
             _metrics.IncGauge(MetricsAPI.GaugeFilesTotal);
             _metrics.IncGauge(MetricsAPI.GaugeFilesTotalSize, new FileInfo(destinationFilePath).Length);
             return true;
         }
         catch (Exception ex)
         {
+            // Recover from a fairly common race condition -- max wait time is 75ms
+            // Having TryCopyFromColdStorage protected by the downloadtask mutex doesn't work for some reason?
+            for (int retry = 0; retry < 5; ++retry)
+            {
+                Thread.Sleep(5 + retry * 5);
+                if (File.Exists(destinationFilePath))
+                    return true;
+            }
             _logger.LogWarning(ex, "Could not copy {coldStoragePath} from cold storage", coldStorageFilePath);
         }
 
         return false;
     }
 
-    public async Task DownloadFileWhenRequired(string hash)
+    // Returns FileInfo ONLY if the hot file was immediately available without downloading
+    // Since the intended use is for pre-fetching files from hot storage, this is exactly what we need anyway
+    public async Task<FileInfo?> DownloadFileWhenRequired(string hash)
     {
         var fi = FilePathUtil.GetFileInfoForHash(_hotStoragePath, hash);
 
         if (fi != null && fi.Length != 0)
-            return;
+            return fi;
 
         // first check cold storage
         if (TryCopyFromColdStorage(hash, FilePathUtil.GetFilePath(_hotStoragePath, hash)))
-            return;
+            return null;
 
         // no distribution server configured to download from
         if (_remoteCacheSourceUri == null)
-            return;
+            return null;
 
         await _downloadSemaphore.WaitAsync().ConfigureAwait(false);
         if (!_currentTransfers.TryGetValue(hash, out var downloadTask) || (downloadTask?.IsCompleted ?? true))
@@ -176,13 +183,15 @@ public sealed class CachedFileProvider : IDisposable
             });
         }
         _downloadSemaphore.Release();
+
+        return null;
     }
 
     public async Task<FileInfo?> GetAndDownloadFile(string hash)
     {
-        await DownloadFileWhenRequired(hash).ConfigureAwait(false);
+        var fi = await DownloadFileWhenRequired(hash).ConfigureAwait(false);
 
-        if (_currentTransfers.TryGetValue(hash, out var downloadTask))
+        if (fi == null && _currentTransfers.TryGetValue(hash, out var downloadTask))
         {
             try
             {
@@ -202,7 +211,8 @@ public sealed class CachedFileProvider : IDisposable
             }
         }
 
-        var fi = FilePathUtil.GetFileInfoForHash(_hotStoragePath, hash);
+        fi ??= FilePathUtil.GetFileInfoForHash(_hotStoragePath, hash);
+
         if (fi == null)
             return null;
 
