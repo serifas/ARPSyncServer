@@ -23,13 +23,14 @@ public class JwtController : Controller
 {
     private readonly IHttpContextAccessor _accessor;
     private readonly IRedisDatabase _redis;
-    private readonly MareDbContext _mareDbContext;
+    private readonly IDbContextFactory<MareDbContext> _mareDbContextFactory;
     private readonly GeoIPService _geoIPProvider;
     private readonly SecretKeyAuthenticatorService _secretKeyAuthenticatorService;
     private readonly AccountRegistrationService _accountRegistrationService;
     private readonly IConfigurationService<AuthServiceConfiguration> _configuration;
 
-    public JwtController(IHttpContextAccessor accessor, MareDbContext mareDbContext,
+    public JwtController(ILogger<JwtController> logger,
+        IHttpContextAccessor accessor, IDbContextFactory<MareDbContext> mareDbContextFactory,
         SecretKeyAuthenticatorService secretKeyAuthenticatorService,
         AccountRegistrationService accountRegistrationService,
         IConfigurationService<AuthServiceConfiguration> configuration,
@@ -38,7 +39,7 @@ public class JwtController : Controller
         _accessor = accessor;
         _redis = redisDb;
         _geoIPProvider = geoIPProvider;
-        _mareDbContext = mareDbContext;
+        _mareDbContextFactory = mareDbContextFactory;
         _secretKeyAuthenticatorService = secretKeyAuthenticatorService;
         _accountRegistrationService = accountRegistrationService;
         _configuration = configuration;
@@ -51,18 +52,19 @@ public class JwtController : Controller
         if (string.IsNullOrEmpty(auth)) return BadRequest("No Authkey");
         if (string.IsNullOrEmpty(charaIdent)) return BadRequest("No CharaIdent");
 
+        using var dbContext = await _mareDbContextFactory.CreateDbContextAsync();
         var ip = _accessor.GetIpAddress();
 
         var authResult = await _secretKeyAuthenticatorService.AuthorizeAsync(ip, auth);
 
-        var isBanned = await _mareDbContext.BannedUsers.AsNoTracking().AnyAsync(u => u.CharacterIdentification == charaIdent).ConfigureAwait(false);
+        var isBanned = await dbContext.BannedUsers.AsNoTracking().AnyAsync(u => u.CharacterIdentification == charaIdent).ConfigureAwait(false);
         if (isBanned)
         {
-            var authToBan = _mareDbContext.Auth.SingleOrDefault(a => a.UserUID == authResult.Uid);
+            var authToBan = dbContext.Auth.SingleOrDefault(a => a.UserUID == authResult.Uid);
             if (authToBan != null)
             {
                 authToBan.IsBanned = true;
-                await _mareDbContext.SaveChangesAsync().ConfigureAwait(false);
+                await dbContext.SaveChangesAsync().ConfigureAwait(false);
             }
 
             return Unauthorized("Your character is banned from using the service.");
@@ -72,37 +74,37 @@ public class JwtController : Controller
         if (!authResult.Success && authResult.TempBan) return Unauthorized("Due to an excessive amount of failed authentication attempts you are temporarily banned. Check your Secret Key configuration and try connecting again in 5 minutes.");
         if (authResult.Permaban)
         {
-            if (!_mareDbContext.BannedUsers.Any(c => c.CharacterIdentification == charaIdent))
+            if (!dbContext.BannedUsers.Any(c => c.CharacterIdentification == charaIdent))
             {
-                _mareDbContext.BannedUsers.Add(new Banned()
+                dbContext.BannedUsers.Add(new Banned()
                 {
                     CharacterIdentification = charaIdent,
                     Reason = "Autobanned CharacterIdent (" + authResult.Uid + ")",
                 });
 
-                await _mareDbContext.SaveChangesAsync();
+                await dbContext.SaveChangesAsync();
             }
 
-            var lodestone = await _mareDbContext.LodeStoneAuth.Include(a => a.User).FirstOrDefaultAsync(c => c.User.UID == authResult.Uid);
+            var lodestone = await dbContext.LodeStoneAuth.Include(a => a.User).FirstOrDefaultAsync(c => c.User.UID == authResult.Uid);
 
             if (lodestone != null)
             {
-                if (!_mareDbContext.BannedRegistrations.Any(c => c.DiscordIdOrLodestoneAuth == lodestone.HashedLodestoneId))
+                if (!dbContext.BannedRegistrations.Any(c => c.DiscordIdOrLodestoneAuth == lodestone.HashedLodestoneId))
                 {
-                    _mareDbContext.BannedRegistrations.Add(new BannedRegistrations()
+                    dbContext.BannedRegistrations.Add(new BannedRegistrations()
                     {
                         DiscordIdOrLodestoneAuth = lodestone.HashedLodestoneId,
                     });
                 }
-                if (!_mareDbContext.BannedRegistrations.Any(c => c.DiscordIdOrLodestoneAuth == lodestone.DiscordId.ToString()))
+                if (!dbContext.BannedRegistrations.Any(c => c.DiscordIdOrLodestoneAuth == lodestone.DiscordId.ToString()))
                 {
-                    _mareDbContext.BannedRegistrations.Add(new BannedRegistrations()
+                    dbContext.BannedRegistrations.Add(new BannedRegistrations()
                     {
                         DiscordIdOrLodestoneAuth = lodestone.DiscordId.ToString(),
                     });
                 }
 
-                await _mareDbContext.SaveChangesAsync();
+                await dbContext.SaveChangesAsync();
             }
 
             return Unauthorized("You are permanently banned.");
