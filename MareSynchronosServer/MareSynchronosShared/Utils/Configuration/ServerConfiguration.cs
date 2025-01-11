@@ -25,6 +25,9 @@ public class ServerConfiguration : MareConfigurationBase
     [RemoteConfiguration]
     public int PurgeUnusedAccountsPeriodInDays { get; set; } = 14;
 
+    [RemoteConfiguration]
+    public int MaxCharaDataByUser { get; set; } = 10;
+
     public override string ToString()
     {
         StringBuilder sb = new();
@@ -37,6 +40,7 @@ public class ServerConfiguration : MareConfigurationBase
         sb.AppendLine($"{nameof(MaxGroupUserCount)} => {MaxGroupUserCount}");
         sb.AppendLine($"{nameof(PurgeUnusedAccounts)} => {PurgeUnusedAccounts}");
         sb.AppendLine($"{nameof(PurgeUnusedAccountsPeriodInDays)} => {PurgeUnusedAccountsPeriodInDays}");
+        sb.AppendLine($"{nameof(MaxCharaDataByUser)} => {MaxCharaDataByUser}");
         return sb.ToString();
     }
 }

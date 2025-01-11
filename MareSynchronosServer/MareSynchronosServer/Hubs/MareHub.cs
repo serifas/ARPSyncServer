@@ -48,6 +48,7 @@ public partial class MareHub : Hub<IMareHub>, IMareHub
         _maxGroupUserCount = configuration.GetValueOrDefault(nameof(ServerConfiguration.MaxGroupUserCount), 100);
         _fileServerAddress = configuration.GetValue<Uri>(nameof(ServerConfiguration.CdnFullUrl));
         _expectedClientVersion = configuration.GetValueOrDefault(nameof(ServerConfiguration.ExpectedClientVersion), new Version(0, 0, 0));
+        _maxCharaDataByUser = configuration.GetValueOrDefault(nameof(ServerConfiguration.MaxCharaDataByUser), 10);
         _contextAccessor = contextAccessor;
         _redis = redisDb;
         _logger = new MareHubLogger(this, logger);
@@ -91,7 +92,8 @@ public partial class MareHub : Hub<IMareHub>, IMareHub
                 ShardName = _shardName,
                 MaxGroupsJoinedByUser = _maxJoinedGroupsByUser,
                 MaxGroupUserCount = _maxGroupUserCount,
-                FileServerAddress = _fileServerAddress
+                FileServerAddress = _fileServerAddress,
+                MaxCharaData = _maxCharaDataByUser
             },
         };
     }

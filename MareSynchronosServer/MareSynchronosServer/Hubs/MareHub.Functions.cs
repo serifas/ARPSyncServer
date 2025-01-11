@@ -2,7 +2,6 @@
 using Microsoft.EntityFrameworkCore;
 using MareSynchronosServer.Utils;
 using MareSynchronosShared.Utils;
-using Microsoft.IdentityModel.Tokens;
 using MareSynchronos.API.Data;
 using MareSynchronos.API.Dto.Group;
 using MareSynchronosShared.Metrics;
@@ -113,7 +112,7 @@ public partial class MareHub
 
     private async Task<string> GetUserIdent(string uid)
     {
-        if (uid.IsNullOrEmpty()) return string.Empty;
+        if (string.IsNullOrEmpty(uid)) return string.Empty;
         return await _redis.GetAsync<string>("UID:" + uid).ConfigureAwait(false);
     }
 

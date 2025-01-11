@@ -97,6 +97,8 @@ public class Startup
         {
             services.AddSingleton<UserCleanupService>();
             services.AddHostedService(provider => provider.GetService<UserCleanupService>());
+            services.AddSingleton<CharaDataCleanupService>();
+            services.AddHostedService(provider => provider.GetService<CharaDataCleanupService>());
         }
     }
 
