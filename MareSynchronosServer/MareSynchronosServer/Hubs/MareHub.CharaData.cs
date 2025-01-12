@@ -5,7 +5,6 @@ using MareSynchronosShared.Models;
 using MareSynchronosShared.Utils;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
-using System.Text;
 using System.Text.Json;
 
 namespace MareSynchronosServer.Hubs;
@@ -116,6 +115,8 @@ public partial class MareHub
             .Include(u => u.OriginalFiles)
             .Include(u => u.AllowedIndividiuals)
             .ThenInclude(u => u.AllowedUser)
+            .Include(u => u.AllowedIndividiuals)
+            .ThenInclude(u => u.AllowedGroup)
             .Include(u => u.Poses)
             .AsSplitQuery()
             .Where(c => c.UploaderUID == UserUID).ToListAsync().ConfigureAwait(false);
@@ -128,48 +129,34 @@ public partial class MareHub
     {
         _logger.LogCallInfo();
 
-        var allPairedUsers = await GetAllPairedUnpausedUsers().ConfigureAwait(false);
         List<CharaData> sharedCharaData = [];
-        foreach (var pair in allPairedUsers)
+        var groups = await DbContext.GroupPairs
+            .Where(u => u.GroupUserUID == UserUID)
+            .Select(k => k.GroupGID)
+            .AsNoTracking()
+            .ToListAsync()
+            .ConfigureAwait(false);
+
+        var validPairs = await GetAllPairedUnpausedUsers().ConfigureAwait(false);
+
+        var allSharedDataByPair = await DbContext.CharaData
+            .Include(u => u.Files)
+            .Include(u => u.OriginalFiles)
+            .Include(u => u.AllowedIndividiuals)
+            .Include(u => u.Poses)
+            .Include(u => u.Uploader)
+            .Where(p => p.UploaderUID != UserUID && p.ShareType == CharaDataShare.Shared)
+            .Where(p => (validPairs.Contains(p.UploaderUID)
+                    || (p.AllowedIndividiuals.Any(u => u.AllowedUserUID == UserUID || (u.AllowedGroupGID != null && groups.Contains(u.AllowedGroupGID))))))
+            .AsSplitQuery()
+            .AsNoTracking()
+            .ToListAsync()
+            .ConfigureAwait(false);
+
+
+        foreach (var charaData in allSharedDataByPair)
         {
-            var allSharedDataByPair = await DbContext.CharaData
-                .Include(u => u.Files)
-                .Include(u => u.OriginalFiles)
-                .Include(u => u.AllowedIndividiuals)
-                .Include(u => u.Poses)
-                .Include(u => u.Uploader)
-                .Where(p => p.ShareType == CharaDataShare.Shared && p.UploaderUID == pair)
-                .AsSplitQuery()
-                .AsNoTracking()
-                .ToListAsync()
-                .ConfigureAwait(false);
-
-            foreach (var charaData in allSharedDataByPair)
-            {
-                if (await CheckCharaDataAllowance(charaData).ConfigureAwait(false))
-                {
-                    sharedCharaData.Add(charaData);
-                }
-            }
-        }
-
-        var charaDataDirectlyShared = await DbContext.CharaData.Include(u => u.Files)
-                .Include(u => u.OriginalFiles)
-                .Include(u => u.AllowedIndividiuals)
-                .Include(u => u.Poses)
-                .Include(u => u.Uploader)
-                .Where(p => p.ShareType == CharaDataShare.Shared && p.AllowedIndividiuals.Any(u => u.AllowedUserUID == UserUID))
-                .AsSplitQuery()
-                .AsNoTracking()
-                .ToListAsync()
-                .ConfigureAwait(false);
-
-        foreach (var data in charaDataDirectlyShared)
-        {
-            if (sharedCharaData.Exists(d => string.Equals(d.Id, data.Id, StringComparison.Ordinal)
-                && string.Equals(d.UploaderUID, d.UploaderUID, StringComparison.Ordinal)))
-                continue;
-            sharedCharaData.Add(data);
+            sharedCharaData.Add(charaData);
         }
 
         _logger.LogCallInfo(MareHubLogger.Args("SUCCESS", sharedCharaData.Count));
@@ -185,6 +172,8 @@ public partial class MareHub
             .Include(u => u.OriginalFiles)
             .Include(u => u.AllowedIndividiuals)
             .ThenInclude(u => u.AllowedUser)
+            .Include(u => u.AllowedIndividiuals)
+            .ThenInclude(u => u.AllowedGroup)
             .Include(u => u.FileSwaps)
             .Include(u => u.Poses)
             .AsSplitQuery()
@@ -239,29 +228,67 @@ public partial class MareHub
 
         if (updateDto.AllowedUsers != null)
         {
-            var individuals = charaData.AllowedIndividiuals.ToList();
-            charaData.AllowedIndividiuals.Clear();
-            DbContext.RemoveRange(individuals);
+            var individuals = charaData.AllowedIndividiuals.Where(k => k.AllowedGroup == null).ToList();
             var allowedUserList = updateDto.AllowedUsers.ToList();
             foreach (var user in updateDto.AllowedUsers)
             {
-                var dbUser = await DbContext.Users.SingleOrDefaultAsync(u => u.UID == user || u.Alias == user).ConfigureAwait(false);
-                if (dbUser != null)
+                if (charaData.AllowedIndividiuals.Any(k => k.AllowedUser != null && (string.Equals(k.AllowedUser.UID, user, StringComparison.Ordinal) || string.Equals(k.AllowedUser.Alias, user, StringComparison.Ordinal))))
                 {
-                    if (!allowedUserList.Contains(dbUser.UID, StringComparer.Ordinal) && !allowedUserList.Contains(dbUser.Alias, StringComparer.Ordinal))
+                    continue;
+                }
+                else
+                {
+                    var dbUser = await DbContext.Users.SingleOrDefaultAsync(u => u.UID == user || u.Alias == user).ConfigureAwait(false);
+                    if (dbUser != null)
                     {
-                        continue;
+                        charaData.AllowedIndividiuals.Add(new CharaDataAllowance()
+                        {
+                            AllowedUser = dbUser,
+                            Parent = charaData
+                        });
                     }
-                    allowedUserList.RemoveAll(u => string.Equals(u, dbUser.UID, StringComparison.Ordinal));
-                    allowedUserList.RemoveAll(u => string.Equals(u, dbUser.Alias, StringComparison.Ordinal));
-
-                    charaData.AllowedIndividiuals.Add(new CharaDataAllowance()
-                    {
-                        AllowedUser = dbUser,
-                        Parent = charaData
-                    });
                 }
             }
+
+            foreach (var dataUser in individuals.Where(k => !updateDto.AllowedUsers.Contains(k.AllowedUser.UID, StringComparer.Ordinal) && !updateDto.AllowedUsers.Contains(k.AllowedUser.Alias, StringComparer.Ordinal)))
+            {
+                DbContext.Remove(dataUser);
+                charaData.AllowedIndividiuals.Remove(dataUser);
+            }
+
+            anyChanges = true;
+        }
+
+        if (updateDto.AllowedGroups != null)
+        {
+            var individualGroups = charaData.AllowedIndividiuals.Where(k => k.AllowedUser == null).ToList();
+            var allowedGroups = updateDto.AllowedGroups.ToList();
+            foreach (var group in updateDto.AllowedGroups)
+            {
+                if (charaData.AllowedIndividiuals.Any(k => k.AllowedGroup != null && (string.Equals(k.AllowedGroup.GID, group, StringComparison.Ordinal) || string.Equals(k.AllowedGroup.Alias, group, StringComparison.Ordinal))))
+                {
+                    continue;
+                }
+                else
+                {
+                    var groupUser = await DbContext.GroupPairs.Include(u => u.Group).SingleOrDefaultAsync(u => (u.Group.GID == group || u.Group.Alias == group) && u.GroupUserUID == UserUID).ConfigureAwait(false);
+                    if (groupUser != null)
+                    {
+                        charaData.AllowedIndividiuals.Add(new CharaDataAllowance()
+                        {
+                            AllowedGroup = groupUser.Group,
+                            Parent = charaData
+                        });
+                    }
+                }
+            }
+
+            foreach (var dataGroup in individualGroups.Where(k => !updateDto.AllowedGroups.Contains(k.AllowedGroup.GID, StringComparer.Ordinal) && !updateDto.AllowedGroups.Contains(k.AllowedGroup.Alias, StringComparer.Ordinal)))
+            {
+                DbContext.Remove(dataGroup);
+                charaData.AllowedIndividiuals.Remove(dataGroup);
+            }
+
             anyChanges = true;
         }
 
@@ -411,7 +438,8 @@ public partial class MareHub
         {
             AccessType = GetAccessTypeDto(charaData.AccessType),
             ShareType = GetShareTypeDto(charaData.ShareType),
-            AllowedUsers = [.. charaData.AllowedIndividiuals.Select(u => new UserData(u.AllowedUser.UID, u.AllowedUser.Alias))],
+            AllowedUsers = [.. charaData.AllowedIndividiuals.Where(k => !string.IsNullOrEmpty(k.AllowedUserUID)).Select(u => new UserData(u.AllowedUser.UID, u.AllowedUser.Alias))],
+            AllowedGroups = [.. charaData.AllowedIndividiuals.Where(k => !string.IsNullOrEmpty(k.AllowedGroupGID)).Select(k => new GroupData(k.AllowedGroup.GID, k.AllowedGroup.Alias))],
             CustomizeData = charaData.CustomizeData,
             Description = charaData.Description,
             ExpiryDate = charaData.ExpiryDate ?? DateTime.MaxValue,
@@ -477,7 +505,7 @@ public partial class MareHub
         _ => throw new NotSupportedException(),
     };
 
-    private async Task<bool> CheckCharaDataAllowance(CharaData charaData)
+    private async Task<bool> CheckCharaDataAllowance(CharaData charaData, List<string> joinedGroups)
     {
         // check for self
         if (string.Equals(charaData.UploaderUID, UserUID, StringComparison.Ordinal))
@@ -544,7 +572,10 @@ public partial class MareHub
             throw new InvalidDataException($"No chara data with {id} found");
         }
 
-        if (!await CheckCharaDataAllowance(charaData).ConfigureAwait(false))
+        var groups = await DbContext.GroupPairs.Where(u => u.GroupUserUID == UserUID).Select(k => k.GroupGID).ToListAsync()
+            .ConfigureAwait(false);
+
+        if (!await CheckCharaDataAllowance(charaData, groups).ConfigureAwait(false))
         {
             _logger.LogCallWarning(MareHubLogger.Args("UNAUTHORIZED", id));
             throw new UnauthorizedAccessException($"User is not allowed to download {id}");

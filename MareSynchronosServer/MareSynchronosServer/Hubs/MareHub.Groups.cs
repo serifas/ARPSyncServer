@@ -191,6 +191,9 @@ public partial class MareHub
 
             var allUserPairs = await GetAllPairedClientsWithPauseState(pair.GroupUserUID).ConfigureAwait(false);
 
+            var sharedData = await DbContext.CharaDataAllowances.Where(u => u.AllowedGroup != null && u.AllowedGroupGID == dto.GID && u.ParentUploaderUID == pair.GroupUserUID).ToListAsync().ConfigureAwait(false);
+            DbContext.CharaDataAllowances.RemoveRange(sharedData);
+
             foreach (var groupUserPair in groupPairs.Where(p => !string.Equals(p.GroupUserUID, pair.GroupUserUID, StringComparison.Ordinal)))
             {
                 await UserGroupLeave(groupUserPair, allUserPairs, pairIdent).ConfigureAwait(false);
@@ -462,6 +465,11 @@ public partial class MareHub
 
         var groupPairs = DbContext.GroupPairs.Where(p => p.GroupGID == group.GID).AsNoTracking().ToList();
         await Clients.Users(groupPairs.Select(p => p.GroupUserUID)).Client_GroupPairLeft(dto).ConfigureAwait(false);
+
+        var sharedData = await DbContext.CharaDataAllowances.Where(u => u.AllowedGroup != null && u.AllowedGroupGID == dto.GID && u.ParentUploaderUID == dto.UID).ToListAsync().ConfigureAwait(false);
+        DbContext.CharaDataAllowances.RemoveRange(sharedData);
+
+        await DbContext.SaveChangesAsync().ConfigureAwait(false);
 
         var userIdent = await GetUserIdent(dto.User.UID).ConfigureAwait(false);
         if (userIdent == null) return;
