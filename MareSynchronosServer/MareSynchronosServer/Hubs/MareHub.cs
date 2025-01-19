@@ -28,6 +28,7 @@ public partial class MareHub : Hub<IMareHub>, IMareHub
     private readonly int _maxJoinedGroupsByUser;
     private readonly int _maxGroupUserCount;
     private readonly IRedisDatabase _redis;
+    private readonly GPoseLobbyDistributionService _gPoseLobbyDistributionService;
     private readonly Uri _fileServerAddress;
     private readonly Version _expectedClientVersion;
     private readonly int _maxCharaDataByUser;
@@ -38,7 +39,7 @@ public partial class MareHub : Hub<IMareHub>, IMareHub
     public MareHub(MareMetrics mareMetrics,
         IDbContextFactory<MareDbContext> mareDbContextFactory, ILogger<MareHub> logger, SystemInfoService systemInfoService,
         IConfigurationService<ServerConfiguration> configuration, IHttpContextAccessor contextAccessor,
-        IRedisDatabase redisDb)
+        IRedisDatabase redisDb, GPoseLobbyDistributionService gPoseLobbyDistributionService)
     {
         _mareMetrics = mareMetrics;
         _systemInfoService = systemInfoService;
@@ -51,6 +52,7 @@ public partial class MareHub : Hub<IMareHub>, IMareHub
         _maxCharaDataByUser = configuration.GetValueOrDefault(nameof(ServerConfiguration.MaxCharaDataByUser), 10);
         _contextAccessor = contextAccessor;
         _redis = redisDb;
+        _gPoseLobbyDistributionService = gPoseLobbyDistributionService;
         _logger = new MareHubLogger(this, logger);
         _dbContextLazy = new Lazy<MareDbContext>(() => mareDbContextFactory.CreateDbContext());
     }
@@ -133,6 +135,7 @@ public partial class MareHub : Hub<IMareHub>, IMareHub
             if (exception != null)
                 _logger.LogCallWarning(MareHubLogger.Args(_contextAccessor.GetIpAddress(), exception.Message, exception.StackTrace));
 
+            await GposeLobbyLeave().ConfigureAwait(false);
             await RemoveUserFromRedis().ConfigureAwait(false);
 
             await SendOfflineToAllPairedUsers().ConfigureAwait(false);

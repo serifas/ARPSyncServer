@@ -41,4 +41,6 @@ public class MetricsAPI
     public const string CounterFileRequests = "mare_files_requests";
     public const string CounterFileRequestSize = "mare_files_request_size";
     public const string CounterAccountsCreated = "mare_accounts_created";
+    public const string GaugeGposeLobbies = "mare_gpose_lobbies";
+    public const string GaugeGposeLobbyUsers = "mare_gpose_lobby_users";
 }
