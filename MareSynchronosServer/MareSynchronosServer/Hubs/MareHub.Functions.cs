@@ -20,26 +20,26 @@ public partial class MareHub
 
     private async Task DeleteUser(User user)
     {
-        var ownPairData = await _dbContext.ClientPairs.Where(u => u.User.UID == user.UID).ToListAsync().ConfigureAwait(false);
-        var auth = await _dbContext.Auth.SingleAsync(u => u.UserUID == user.UID).ConfigureAwait(false);
-        var lodestone = await _dbContext.LodeStoneAuth.SingleOrDefaultAsync(a => a.User.UID == user.UID).ConfigureAwait(false);
-        var groupPairs = await _dbContext.GroupPairs.Where(g => g.GroupUserUID == user.UID).ToListAsync().ConfigureAwait(false);
-        var userProfileData = await _dbContext.UserProfileData.SingleOrDefaultAsync(u => u.UserUID == user.UID).ConfigureAwait(false);
-        var bannedEntries = await _dbContext.GroupBans.Where(u => u.BannedUserUID == user.UID).ToListAsync().ConfigureAwait(false);
+        var ownPairData = await DbContext.ClientPairs.Where(u => u.User.UID == user.UID).ToListAsync().ConfigureAwait(false);
+        var auth = await DbContext.Auth.SingleAsync(u => u.UserUID == user.UID).ConfigureAwait(false);
+        var lodestone = await DbContext.LodeStoneAuth.SingleOrDefaultAsync(a => a.User.UID == user.UID).ConfigureAwait(false);
+        var groupPairs = await DbContext.GroupPairs.Where(g => g.GroupUserUID == user.UID).ToListAsync().ConfigureAwait(false);
+        var userProfileData = await DbContext.UserProfileData.SingleOrDefaultAsync(u => u.UserUID == user.UID).ConfigureAwait(false);
+        var bannedEntries = await DbContext.GroupBans.Where(u => u.BannedUserUID == user.UID).ToListAsync().ConfigureAwait(false);
 
         if (lodestone != null)
         {
-            _dbContext.Remove(lodestone);
+            DbContext.Remove(lodestone);
         }
 
         if (userProfileData != null)
         {
-            _dbContext.Remove(userProfileData);
+            DbContext.Remove(userProfileData);
         }
 
-        _dbContext.ClientPairs.RemoveRange(ownPairData);
-        await _dbContext.SaveChangesAsync().ConfigureAwait(false);
-        var otherPairData = await _dbContext.ClientPairs.Include(u => u.User)
+        DbContext.ClientPairs.RemoveRange(ownPairData);
+        await DbContext.SaveChangesAsync().ConfigureAwait(false);
+        var otherPairData = await DbContext.ClientPairs.Include(u => u.User)
             .Where(u => u.OtherUser.UID == user.UID).AsNoTracking().ToListAsync().ConfigureAwait(false);
         foreach (var pair in otherPairData)
         {
@@ -53,19 +53,19 @@ public partial class MareHub
 
         _mareMetrics.IncCounter(MetricsAPI.CounterUsersRegisteredDeleted, 1);
 
-        _dbContext.GroupBans.RemoveRange(bannedEntries);
-        _dbContext.ClientPairs.RemoveRange(otherPairData);
-        _dbContext.Users.Remove(user);
-        _dbContext.Auth.Remove(auth);
-        await _dbContext.SaveChangesAsync().ConfigureAwait(false);
+        DbContext.GroupBans.RemoveRange(bannedEntries);
+        DbContext.ClientPairs.RemoveRange(otherPairData);
+        DbContext.Users.Remove(user);
+        DbContext.Auth.Remove(auth);
+        await DbContext.SaveChangesAsync().ConfigureAwait(false);
     }
 
     private async Task<List<PausedEntry>> GetAllPairedClientsWithPauseState(string? uid = null)
     {
         uid ??= UserUID;
 
-        var query = await (from userPair in _dbContext.ClientPairs
-                           join otherUserPair in _dbContext.ClientPairs on userPair.OtherUserUID equals otherUserPair.UserUID
+        var query = await (from userPair in DbContext.ClientPairs
+                           join otherUserPair in DbContext.ClientPairs on userPair.OtherUserUID equals otherUserPair.UserUID
                            where otherUserPair.OtherUserUID == uid && userPair.UserUID == uid
                            select new
                            {
@@ -75,8 +75,8 @@ public partial class MareHub
                                PauseStateOther = otherUserPair.IsPaused,
                            })
                             .Union(
-                                (from userGroupPair in _dbContext.GroupPairs
-                                 join otherGroupPair in _dbContext.GroupPairs on userGroupPair.GroupGID equals otherGroupPair.GroupGID
+                                (from userGroupPair in DbContext.GroupPairs
+                                 join otherGroupPair in DbContext.GroupPairs on userGroupPair.GroupGID equals otherGroupPair.GroupGID
                                  where
                                      userGroupPair.GroupUserUID == uid
                                      && otherGroupPair.GroupUserUID != uid
@@ -141,7 +141,7 @@ public partial class MareHub
     private async Task<List<string>> SendOfflineToAllPairedUsers()
     {
         var usersToSendDataTo = await GetAllPairedUnpausedUsers().ConfigureAwait(false);
-        var self = await _dbContext.Users.AsNoTracking().SingleAsync(u => u.UID == UserUID).ConfigureAwait(false);
+        var self = await DbContext.Users.AsNoTracking().SingleAsync(u => u.UID == UserUID).ConfigureAwait(false);
         await Clients.Users(usersToSendDataTo).Client_UserSendOffline(new(self.ToUserData())).ConfigureAwait(false);
 
         return usersToSendDataTo;
@@ -150,7 +150,7 @@ public partial class MareHub
     private async Task<List<string>> SendOnlineToAllPairedUsers()
     {
         var usersToSendDataTo = await GetAllPairedUnpausedUsers().ConfigureAwait(false);
-        var self = await _dbContext.Users.AsNoTracking().SingleAsync(u => u.UID == UserUID).ConfigureAwait(false);
+        var self = await DbContext.Users.AsNoTracking().SingleAsync(u => u.UID == UserUID).ConfigureAwait(false);
         await Clients.Users(usersToSendDataTo).Client_UserSendOnline(new(self.ToUserData(), UserCharaIdent)).ConfigureAwait(false);
 
         return usersToSendDataTo;
@@ -163,7 +163,7 @@ public partial class MareHub
 
         if (isOwnerResult.ReferredGroup == null) return (false, null);
 
-        var groupPairSelf = await _dbContext.GroupPairs.SingleOrDefaultAsync(g => g.GroupGID == gid && g.GroupUserUID == UserUID).ConfigureAwait(false);
+        var groupPairSelf = await DbContext.GroupPairs.SingleOrDefaultAsync(g => g.GroupGID == gid && g.GroupUserUID == UserUID).ConfigureAwait(false);
         if (groupPairSelf == null || !groupPairSelf.IsModerator) return (false, null);
 
         return (true, isOwnerResult.ReferredGroup);
@@ -171,7 +171,7 @@ public partial class MareHub
 
     private async Task<(bool isValid, Group ReferredGroup)> TryValidateOwner(string gid)
     {
-        var group = await _dbContext.Groups.SingleOrDefaultAsync(g => g.GID == gid).ConfigureAwait(false);
+        var group = await DbContext.Groups.SingleOrDefaultAsync(g => g.GID == gid).ConfigureAwait(false);
         if (group == null) return (false, null);
 
         return (string.Equals(group.OwnerUID, UserUID, StringComparison.Ordinal), group);
@@ -181,7 +181,7 @@ public partial class MareHub
     {
         uid ??= UserUID;
 
-        var groupPair = await _dbContext.GroupPairs.Include(c => c.GroupUser)
+        var groupPair = await DbContext.GroupPairs.Include(c => c.GroupUser)
             .SingleOrDefaultAsync(g => g.GroupGID == gid && (g.GroupUserUID == uid || g.GroupUser.Alias == uid)).ConfigureAwait(false);
         if (groupPair == null) return (false, null);
 
@@ -218,13 +218,13 @@ public partial class MareHub
         var (exists, groupPair) = await TryValidateUserInGroup(dto.Group.GID, userUid).ConfigureAwait(false);
         if (!exists) return;
 
-        var group = await _dbContext.Groups.SingleOrDefaultAsync(g => g.GID == dto.Group.GID).ConfigureAwait(false);
+        var group = await DbContext.Groups.SingleOrDefaultAsync(g => g.GID == dto.Group.GID).ConfigureAwait(false);
 
-        var groupPairs = await _dbContext.GroupPairs.Where(p => p.GroupGID == group.GID).ToListAsync().ConfigureAwait(false);
+        var groupPairs = await DbContext.GroupPairs.Where(p => p.GroupGID == group.GID).ToListAsync().ConfigureAwait(false);
         var groupPairsWithoutSelf = groupPairs.Where(p => !string.Equals(p.GroupUserUID, userUid, StringComparison.Ordinal)).ToList();
 
-        _dbContext.GroupPairs.Remove(groupPair);
-        await _dbContext.SaveChangesAsync().ConfigureAwait(false);
+        DbContext.GroupPairs.Remove(groupPair);
+        await DbContext.SaveChangesAsync().ConfigureAwait(false);
 
         await Clients.User(userUid).Client_GroupDelete(new GroupDto(group.ToGroupData())).ConfigureAwait(false);
 
@@ -235,17 +235,17 @@ public partial class MareHub
             {
                 _logger.LogCallInfo(MareHubLogger.Args(dto, "Deleted"));
 
-                _dbContext.Groups.Remove(group);
+                DbContext.Groups.Remove(group);
             }
             else
             {
-                var groupHasMigrated = await SharedDbFunctions.MigrateOrDeleteGroup(_dbContext, group, groupPairsWithoutSelf, _maxExistingGroupsByUser).ConfigureAwait(false);
+                var groupHasMigrated = await SharedDbFunctions.MigrateOrDeleteGroup(DbContext, group, groupPairsWithoutSelf, _maxExistingGroupsByUser).ConfigureAwait(false);
 
                 if (groupHasMigrated.Item1)
                 {
                     _logger.LogCallInfo(MareHubLogger.Args(dto, "Migrated", groupHasMigrated.Item2));
 
-                    var user = await _dbContext.Users.SingleAsync(u => u.UID == groupHasMigrated.Item2).ConfigureAwait(false);
+                    var user = await DbContext.Users.SingleAsync(u => u.UID == groupHasMigrated.Item2).ConfigureAwait(false);
 
                     await Clients.Users(groupPairsWithoutSelf.Select(p => p.GroupUserUID)).Client_GroupSendInfo(new GroupInfoDto(group.ToGroupData(),
                         user.ToUserData(), group.GetGroupPermissions())).ConfigureAwait(false);
@@ -263,7 +263,7 @@ public partial class MareHub
             }
         }
 
-        await _dbContext.SaveChangesAsync().ConfigureAwait(false);
+        await DbContext.SaveChangesAsync().ConfigureAwait(false);
 
         _logger.LogCallInfo(MareHubLogger.Args(dto, "Success"));
 

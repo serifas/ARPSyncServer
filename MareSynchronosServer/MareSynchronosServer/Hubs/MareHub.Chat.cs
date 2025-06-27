@@ -27,9 +27,9 @@ public partial class MareHub
         var (userExists, groupPair) = await TryValidateUserInGroup(dto.GID, UserUID).ConfigureAwait(false);
         if (!userExists) return;
 
-        var group = await _dbContext.Groups.AsNoTracking().SingleAsync(g => g.GID == dto.GID).ConfigureAwait(false);
-        var sender = await _dbContext.Users.AsNoTracking().SingleAsync(u => u.UID == UserUID).ConfigureAwait(false);
-        var groupPairs = await _dbContext.GroupPairs.AsNoTracking().Include(p => p.GroupUser).Where(p => p.GroupGID == dto.Group.GID).ToListAsync().ConfigureAwait(false);
+        var group = await DbContext.Groups.AsNoTracking().SingleAsync(g => g.GID == dto.GID).ConfigureAwait(false);
+        var sender = await DbContext.Users.AsNoTracking().SingleAsync(u => u.UID == UserUID).ConfigureAwait(false);
+        var groupPairs = await DbContext.GroupPairs.AsNoTracking().Include(p => p.GroupUser).Where(p => p.GroupGID == dto.Group.GID).ToListAsync().ConfigureAwait(false);
 
         if (group == null || sender == null) return;
 

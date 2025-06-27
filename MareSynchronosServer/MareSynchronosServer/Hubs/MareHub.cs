@@ -11,6 +11,7 @@ using MareSynchronosShared.Services;
 using MareSynchronosShared.Utils.Configuration;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis.Extensions.Core.Abstractions;
 
 namespace MareSynchronosServer.Hubs;
@@ -22,7 +23,6 @@ public partial class MareHub : Hub<IMareHub>, IMareHub
     private readonly SystemInfoService _systemInfoService;
     private readonly IHttpContextAccessor _contextAccessor;
     private readonly MareHubLogger _logger;
-    private readonly MareDbContext _dbContext;
     private readonly string _shardName;
     private readonly int _maxExistingGroupsByUser;
     private readonly int _maxJoinedGroupsByUser;
@@ -30,9 +30,13 @@ public partial class MareHub : Hub<IMareHub>, IMareHub
     private readonly IRedisDatabase _redis;
     private readonly Uri _fileServerAddress;
     private readonly Version _expectedClientVersion;
+    private readonly int _maxCharaDataByUser;
+
+    private readonly Lazy<MareDbContext> _dbContextLazy;
+    private MareDbContext DbContext => _dbContextLazy.Value;
 
     public MareHub(MareMetrics mareMetrics,
-        MareDbContext mareDbContext, ILogger<MareHub> logger, SystemInfoService systemInfoService,
+        IDbContextFactory<MareDbContext> mareDbContextFactory, ILogger<MareHub> logger, SystemInfoService systemInfoService,
         IConfigurationService<ServerConfiguration> configuration, IHttpContextAccessor contextAccessor,
         IRedisDatabase redisDb)
     {
@@ -47,7 +51,17 @@ public partial class MareHub : Hub<IMareHub>, IMareHub
         _contextAccessor = contextAccessor;
         _redis = redisDb;
         _logger = new MareHubLogger(this, logger);
-        _dbContext = mareDbContext;
+        _dbContextLazy = new Lazy<MareDbContext>(() => mareDbContextFactory.CreateDbContext());
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            DbContext.Dispose();
+        }
+
+        base.Dispose(disposing);
     }
 
     [Authorize(Policy = "Identified")]
@@ -59,9 +73,9 @@ public partial class MareHub : Hub<IMareHub>, IMareHub
 
         await Clients.Caller.Client_UpdateSystemInfo(_systemInfoService.SystemInfoDto).ConfigureAwait(false);
 
-        var dbUser = _dbContext.Users.SingleOrDefault(f => f.UID == UserUID);
+        var dbUser = DbContext.Users.SingleOrDefault(f => f.UID == UserUID);
         dbUser.LastLoggedIn = DateTime.UtcNow;
-        await _dbContext.SaveChangesAsync().ConfigureAwait(false);
+        await DbContext.SaveChangesAsync().ConfigureAwait(false);
 
         await Clients.Caller.Client_ReceiveServerMessage(MessageSeverity.Information, "Welcome to Loporrit, Current Online Users: " + _systemInfoService.SystemInfoDto.OnlineUsers).ConfigureAwait(false);
 
