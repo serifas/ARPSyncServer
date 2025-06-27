@@ -104,6 +104,18 @@ public partial class MareHub
         return ret.Where(k => !k.IsPaused).Select(k => k.UID).ToList();
     }
 
+    private async Task<List<string>> GetDirectPairedUnpausedUsers(string? uid = null)
+    {
+        uid ??= UserUID;
+
+        var query = await (from userPair in DbContext.ClientPairs
+                           join otherUserPair in DbContext.ClientPairs on userPair.OtherUserUID equals otherUserPair.UserUID
+                           where otherUserPair.OtherUserUID == uid && userPair.UserUID == uid && !userPair.IsPaused && !otherUserPair.IsPaused
+                           select Convert.ToString(userPair.OtherUserUID)).AsNoTracking().ToListAsync().ConfigureAwait(false);
+
+        return query;
+    }
+
     private async Task<Dictionary<string, string>> GetOnlineUsers(List<string> uids)
     {
         var result = await _redis.GetAllAsync<string>(uids.Select(u => "UID:" + u).ToHashSet(StringComparer.Ordinal)).ConfigureAwait(false);

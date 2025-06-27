@@ -137,7 +137,8 @@ public partial class MareHub
             .ToListAsync()
             .ConfigureAwait(false);
 
-        var validPairs = await GetAllPairedUnpausedUsers().ConfigureAwait(false);
+        var individualPairs = await GetDirectPairedUnpausedUsers().ConfigureAwait(false);
+        var allPairs = await GetAllPairedUnpausedUsers().ConfigureAwait(false);
 
         var allSharedDataByPair = await DbContext.CharaData
             .Include(u => u.Files)
@@ -146,8 +147,10 @@ public partial class MareHub
             .Include(u => u.Poses)
             .Include(u => u.Uploader)
             .Where(p => p.UploaderUID != UserUID && p.ShareType == CharaDataShare.Shared)
-            .Where(p => (validPairs.Contains(p.UploaderUID)
-                    || (p.AllowedIndividiuals.Any(u => u.AllowedUserUID == UserUID || (u.AllowedGroupGID != null && groups.Contains(u.AllowedGroupGID))))))
+            .Where(p =>
+                (individualPairs.Contains(p.UploaderUID) && p.AccessType == CharaDataAccess.ClosePairs)
+                || (allPairs.Contains(p.UploaderUID) && p.AccessType == CharaDataAccess.AllPairs)
+                || (p.AllowedIndividiuals.Any(u => u.AllowedUserUID == UserUID || (u.AllowedGroupGID != null && groups.Contains(u.AllowedGroupGID)))))
             .AsSplitQuery()
             .AsNoTracking()
             .ToListAsync()
