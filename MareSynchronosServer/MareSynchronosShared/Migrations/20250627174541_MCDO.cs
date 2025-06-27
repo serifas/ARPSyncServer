@@ -7,7 +7,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MareSynchronosServer.Migrations
 {
     /// <inheritdoc />
-    public partial class CharaData : Migration
+    public partial class MCDO : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -26,6 +26,7 @@ namespace MareSynchronosServer.Migrations
                     expiry_date = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     glamourer_data = table.Column<string>(type: "text", nullable: true),
                     customize_data = table.Column<string>(type: "text", nullable: true),
+                    manipulation_data = table.Column<string>(type: "text", nullable: true),
                     download_count = table.Column<int>(type: "integer", nullable: false)
                 },
                 constraints: table =>
@@ -65,27 +66,49 @@ namespace MareSynchronosServer.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "chara_data_file_swaps",
+                columns: table => new
+                {
+                    parent_id = table.Column<string>(type: "text", nullable: false),
+                    parent_uploader_uid = table.Column<string>(type: "character varying(10)", nullable: false),
+                    game_path = table.Column<string>(type: "text", nullable: false),
+                    file_path = table.Column<string>(type: "text", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("pk_chara_data_file_swaps", x => new { x.parent_id, x.parent_uploader_uid, x.game_path });
+                    table.ForeignKey(
+                        name: "fk_chara_data_file_swaps_chara_data_parent_id_parent_uploader_",
+                        columns: x => new { x.parent_id, x.parent_uploader_uid },
+                        principalTable: "chara_data",
+                        principalColumns: new[] { "id", "uploader_uid" },
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "chara_data_files",
                 columns: table => new
                 {
                     game_path = table.Column<string>(type: "text", nullable: false),
                     parent_id = table.Column<string>(type: "text", nullable: false),
-                    file_cache_hash = table.Column<string>(type: "character varying(40)", nullable: true),
-                    parent_uploader_uid = table.Column<string>(type: "character varying(10)", nullable: true)
+                    parent_uploader_uid = table.Column<string>(type: "character varying(10)", nullable: false),
+                    file_cache_hash = table.Column<string>(type: "character varying(40)", nullable: true)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("pk_chara_data_files", x => new { x.parent_id, x.game_path });
+                    table.PrimaryKey("pk_chara_data_files", x => new { x.parent_id, x.parent_uploader_uid, x.game_path });
                     table.ForeignKey(
                         name: "fk_chara_data_files_chara_data_parent_id_parent_uploader_uid",
                         columns: x => new { x.parent_id, x.parent_uploader_uid },
                         principalTable: "chara_data",
-                        principalColumns: new[] { "id", "uploader_uid" });
+                        principalColumns: new[] { "id", "uploader_uid" },
+                        onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
                         name: "fk_chara_data_files_files_file_cache_hash",
                         column: x => x.file_cache_hash,
                         principalTable: "file_caches",
-                        principalColumn: "hash");
+                        principalColumn: "hash",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -94,11 +117,12 @@ namespace MareSynchronosServer.Migrations
                 {
                     parent_id = table.Column<string>(type: "text", nullable: false),
                     parent_uploader_uid = table.Column<string>(type: "character varying(10)", nullable: false),
-                    hash = table.Column<string>(type: "text", nullable: false)
+                    game_path = table.Column<string>(type: "text", nullable: false),
+                    hash = table.Column<string>(type: "text", nullable: true)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("pk_chara_data_orig_files", x => new { x.parent_id, x.parent_uploader_uid, x.hash });
+                    table.PrimaryKey("pk_chara_data_orig_files", x => new { x.parent_id, x.parent_uploader_uid, x.game_path });
                     table.ForeignKey(
                         name: "fk_chara_data_orig_files_chara_data_parent_id_parent_uploader_",
                         columns: x => new { x.parent_id, x.parent_uploader_uid },
@@ -151,6 +175,11 @@ namespace MareSynchronosServer.Migrations
                 column: "parent_id");
 
             migrationBuilder.CreateIndex(
+                name: "ix_chara_data_file_swaps_parent_id",
+                table: "chara_data_file_swaps",
+                column: "parent_id");
+
+            migrationBuilder.CreateIndex(
                 name: "ix_chara_data_files_file_cache_hash",
                 table: "chara_data_files",
                 column: "file_cache_hash");
@@ -159,11 +188,6 @@ namespace MareSynchronosServer.Migrations
                 name: "ix_chara_data_files_parent_id",
                 table: "chara_data_files",
                 column: "parent_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_chara_data_files_parent_id_parent_uploader_uid",
-                table: "chara_data_files",
-                columns: new[] { "parent_id", "parent_uploader_uid" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_chara_data_orig_files_parent_id",
@@ -181,6 +205,9 @@ namespace MareSynchronosServer.Migrations
         {
             migrationBuilder.DropTable(
                 name: "chara_data_allowance");
+
+            migrationBuilder.DropTable(
+                name: "chara_data_file_swaps");
 
             migrationBuilder.DropTable(
                 name: "chara_data_files");

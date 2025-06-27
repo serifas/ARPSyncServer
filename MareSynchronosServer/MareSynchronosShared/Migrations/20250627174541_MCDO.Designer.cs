@@ -12,15 +12,15 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MareSynchronosServer.Migrations
 {
     [DbContext(typeof(MareDbContext))]
-    [Migration("20241228190750_ManipData")]
-    partial class ManipData
+    [Migration("20250627174541_MCDO")]
+    partial class MCDO
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.10")
+                .HasAnnotation("ProductVersion", "8.0.4")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -35,10 +35,6 @@ namespace MareSynchronosServer.Migrations
                     b.Property<bool>("IsBanned")
                         .HasColumnType("boolean")
                         .HasColumnName("is_banned");
-
-                    b.Property<bool>("MarkForBan")
-                        .HasColumnType("boolean")
-                        .HasColumnName("mark_for_ban");
 
                     b.Property<string>("PrimaryUserUID")
                         .HasColumnType("character varying(10)")
@@ -318,6 +314,26 @@ namespace MareSynchronosServer.Migrations
                         .HasColumnType("character varying(10)")
                         .HasColumnName("other_user_uid");
 
+                    b.Property<bool>("AllowReceivingMessages")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allow_receiving_messages");
+
+                    b.Property<bool>("DisableAnimations")
+                        .HasColumnType("boolean")
+                        .HasColumnName("disable_animations");
+
+                    b.Property<bool>("DisableSounds")
+                        .HasColumnType("boolean")
+                        .HasColumnName("disable_sounds");
+
+                    b.Property<bool>("DisableVFX")
+                        .HasColumnType("boolean")
+                        .HasColumnName("disable_vfx");
+
+                    b.Property<bool>("IsPaused")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_paused");
+
                     b.Property<byte[]>("Timestamp")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -342,10 +358,6 @@ namespace MareSynchronosServer.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)")
                         .HasColumnName("hash");
-
-                    b.Property<long>("RawSize")
-                        .HasColumnType("bigint")
-                        .HasColumnName("raw_size");
 
                     b.Property<long>("Size")
                         .HasColumnType("bigint")
@@ -415,6 +427,18 @@ namespace MareSynchronosServer.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("alias");
 
+                    b.Property<bool>("DisableAnimations")
+                        .HasColumnType("boolean")
+                        .HasColumnName("disable_animations");
+
+                    b.Property<bool>("DisableSounds")
+                        .HasColumnType("boolean")
+                        .HasColumnName("disable_sounds");
+
+                    b.Property<bool>("DisableVFX")
+                        .HasColumnType("boolean")
+                        .HasColumnName("disable_vfx");
+
                     b.Property<string>("HashedPassword")
                         .HasColumnType("text")
                         .HasColumnName("hashed_password");
@@ -426,18 +450,6 @@ namespace MareSynchronosServer.Migrations
                     b.Property<string>("OwnerUID")
                         .HasColumnType("character varying(10)")
                         .HasColumnName("owner_uid");
-
-                    b.Property<bool>("PreferDisableAnimations")
-                        .HasColumnType("boolean")
-                        .HasColumnName("prefer_disable_animations");
-
-                    b.Property<bool>("PreferDisableSounds")
-                        .HasColumnType("boolean")
-                        .HasColumnName("prefer_disable_sounds");
-
-                    b.Property<bool>("PreferDisableVFX")
-                        .HasColumnType("boolean")
-                        .HasColumnName("prefer_disable_vfx");
 
                     b.HasKey("GID")
                         .HasName("pk_groups");
@@ -495,9 +507,25 @@ namespace MareSynchronosServer.Migrations
                         .HasColumnType("character varying(10)")
                         .HasColumnName("group_user_uid");
 
+                    b.Property<bool>("DisableAnimations")
+                        .HasColumnType("boolean")
+                        .HasColumnName("disable_animations");
+
+                    b.Property<bool>("DisableSounds")
+                        .HasColumnType("boolean")
+                        .HasColumnName("disable_sounds");
+
+                    b.Property<bool>("DisableVFX")
+                        .HasColumnType("boolean")
+                        .HasColumnName("disable_vfx");
+
                     b.Property<bool>("IsModerator")
                         .HasColumnType("boolean")
                         .HasColumnName("is_moderator");
+
+                    b.Property<bool>("IsPaused")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_paused");
 
                     b.Property<bool>("IsPinned")
                         .HasColumnType("boolean")
@@ -513,44 +541,6 @@ namespace MareSynchronosServer.Migrations
                         .HasDatabaseName("ix_group_pairs_group_user_uid");
 
                     b.ToTable("group_pairs", (string)null);
-                });
-
-            modelBuilder.Entity("MareSynchronosShared.Models.GroupPairPreferredPermission", b =>
-                {
-                    b.Property<string>("UserUID")
-                        .HasColumnType("character varying(10)")
-                        .HasColumnName("user_uid");
-
-                    b.Property<string>("GroupGID")
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("group_gid");
-
-                    b.Property<bool>("DisableAnimations")
-                        .HasColumnType("boolean")
-                        .HasColumnName("disable_animations");
-
-                    b.Property<bool>("DisableSounds")
-                        .HasColumnType("boolean")
-                        .HasColumnName("disable_sounds");
-
-                    b.Property<bool>("DisableVFX")
-                        .HasColumnType("boolean")
-                        .HasColumnName("disable_vfx");
-
-                    b.Property<bool>("IsPaused")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_paused");
-
-                    b.HasKey("UserUID", "GroupGID")
-                        .HasName("pk_group_pair_preferred_permissions");
-
-                    b.HasIndex("GroupGID")
-                        .HasDatabaseName("ix_group_pair_preferred_permissions_group_gid");
-
-                    b.HasIndex("UserUID")
-                        .HasDatabaseName("ix_group_pair_preferred_permissions_user_uid");
-
-                    b.ToTable("group_pair_preferred_permissions", (string)null);
                 });
 
             modelBuilder.Entity("MareSynchronosShared.Models.GroupTempInvite", b =>
@@ -650,95 +640,6 @@ namespace MareSynchronosServer.Migrations
                     b.ToTable("users", (string)null);
                 });
 
-            modelBuilder.Entity("MareSynchronosShared.Models.UserDefaultPreferredPermission", b =>
-                {
-                    b.Property<string>("UserUID")
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)")
-                        .HasColumnName("user_uid");
-
-                    b.Property<bool>("DisableGroupAnimations")
-                        .HasColumnType("boolean")
-                        .HasColumnName("disable_group_animations");
-
-                    b.Property<bool>("DisableGroupSounds")
-                        .HasColumnType("boolean")
-                        .HasColumnName("disable_group_sounds");
-
-                    b.Property<bool>("DisableGroupVFX")
-                        .HasColumnType("boolean")
-                        .HasColumnName("disable_group_vfx");
-
-                    b.Property<bool>("DisableIndividualAnimations")
-                        .HasColumnType("boolean")
-                        .HasColumnName("disable_individual_animations");
-
-                    b.Property<bool>("DisableIndividualSounds")
-                        .HasColumnType("boolean")
-                        .HasColumnName("disable_individual_sounds");
-
-                    b.Property<bool>("DisableIndividualVFX")
-                        .HasColumnType("boolean")
-                        .HasColumnName("disable_individual_vfx");
-
-                    b.Property<bool>("IndividualIsSticky")
-                        .HasColumnType("boolean")
-                        .HasColumnName("individual_is_sticky");
-
-                    b.HasKey("UserUID")
-                        .HasName("pk_user_default_preferred_permissions");
-
-                    b.HasIndex("UserUID")
-                        .HasDatabaseName("ix_user_default_preferred_permissions_user_uid");
-
-                    b.ToTable("user_default_preferred_permissions", (string)null);
-                });
-
-            modelBuilder.Entity("MareSynchronosShared.Models.UserPermissionSet", b =>
-                {
-                    b.Property<string>("UserUID")
-                        .HasColumnType("character varying(10)")
-                        .HasColumnName("user_uid");
-
-                    b.Property<string>("OtherUserUID")
-                        .HasColumnType("character varying(10)")
-                        .HasColumnName("other_user_uid");
-
-                    b.Property<bool>("DisableAnimations")
-                        .HasColumnType("boolean")
-                        .HasColumnName("disable_animations");
-
-                    b.Property<bool>("DisableSounds")
-                        .HasColumnType("boolean")
-                        .HasColumnName("disable_sounds");
-
-                    b.Property<bool>("DisableVFX")
-                        .HasColumnType("boolean")
-                        .HasColumnName("disable_vfx");
-
-                    b.Property<bool>("IsPaused")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_paused");
-
-                    b.Property<bool>("Sticky")
-                        .HasColumnType("boolean")
-                        .HasColumnName("sticky");
-
-                    b.HasKey("UserUID", "OtherUserUID")
-                        .HasName("pk_user_permission_sets");
-
-                    b.HasIndex("OtherUserUID")
-                        .HasDatabaseName("ix_user_permission_sets_other_user_uid");
-
-                    b.HasIndex("UserUID")
-                        .HasDatabaseName("ix_user_permission_sets_user_uid");
-
-                    b.HasIndex("UserUID", "OtherUserUID", "IsPaused")
-                        .HasDatabaseName("ix_user_permission_sets_user_uid_other_user_uid_is_paused");
-
-                    b.ToTable("user_permission_sets", (string)null);
-                });
-
             modelBuilder.Entity("MareSynchronosShared.Models.UserProfileData", b =>
                 {
                     b.Property<string>("UserUID")
@@ -769,6 +670,43 @@ namespace MareSynchronosServer.Migrations
                         .HasName("pk_user_profile_data");
 
                     b.ToTable("user_profile_data", (string)null);
+                });
+
+            modelBuilder.Entity("MareSynchronosShared.Models.UserProfileDataReport", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("ReportDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("report_date");
+
+                    b.Property<string>("ReportReason")
+                        .HasColumnType("text")
+                        .HasColumnName("report_reason");
+
+                    b.Property<string>("ReportedUserUID")
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("reported_user_uid");
+
+                    b.Property<string>("ReportingUserUID")
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("reporting_user_uid");
+
+                    b.HasKey("Id")
+                        .HasName("pk_user_profile_data_reports");
+
+                    b.HasIndex("ReportedUserUID")
+                        .HasDatabaseName("ix_user_profile_data_reports_reported_user_uid");
+
+                    b.HasIndex("ReportingUserUID")
+                        .HasDatabaseName("ix_user_profile_data_reports_reporting_user_uid");
+
+                    b.ToTable("user_profile_data_reports", (string)null);
                 });
 
             modelBuilder.Entity("MareSynchronosShared.Models.Auth", b =>
@@ -967,27 +905,6 @@ namespace MareSynchronosServer.Migrations
                     b.Navigation("GroupUser");
                 });
 
-            modelBuilder.Entity("MareSynchronosShared.Models.GroupPairPreferredPermission", b =>
-                {
-                    b.HasOne("MareSynchronosShared.Models.Group", "Group")
-                        .WithMany()
-                        .HasForeignKey("GroupGID")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_group_pair_preferred_permissions_groups_group_gid");
-
-                    b.HasOne("MareSynchronosShared.Models.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserUID")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_group_pair_preferred_permissions_users_user_uid");
-
-                    b.Navigation("Group");
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("MareSynchronosShared.Models.GroupTempInvite", b =>
                 {
                     b.HasOne("MareSynchronosShared.Models.Group", "Group")
@@ -1010,39 +927,6 @@ namespace MareSynchronosServer.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("MareSynchronosShared.Models.UserDefaultPreferredPermission", b =>
-                {
-                    b.HasOne("MareSynchronosShared.Models.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserUID")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_user_default_preferred_permissions_users_user_uid");
-
-                    b.Navigation("User");
-                });
-
-            modelBuilder.Entity("MareSynchronosShared.Models.UserPermissionSet", b =>
-                {
-                    b.HasOne("MareSynchronosShared.Models.User", "OtherUser")
-                        .WithMany()
-                        .HasForeignKey("OtherUserUID")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_user_permission_sets_users_other_user_uid");
-
-                    b.HasOne("MareSynchronosShared.Models.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserUID")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_user_permission_sets_users_user_uid");
-
-                    b.Navigation("OtherUser");
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("MareSynchronosShared.Models.UserProfileData", b =>
                 {
                     b.HasOne("MareSynchronosShared.Models.User", "User")
@@ -1053,6 +937,23 @@ namespace MareSynchronosServer.Migrations
                         .HasConstraintName("fk_user_profile_data_users_user_uid");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("MareSynchronosShared.Models.UserProfileDataReport", b =>
+                {
+                    b.HasOne("MareSynchronosShared.Models.User", "ReportedUser")
+                        .WithMany()
+                        .HasForeignKey("ReportedUserUID")
+                        .HasConstraintName("fk_user_profile_data_reports_users_reported_user_uid");
+
+                    b.HasOne("MareSynchronosShared.Models.User", "ReportingUser")
+                        .WithMany()
+                        .HasForeignKey("ReportingUserUID")
+                        .HasConstraintName("fk_user_profile_data_reports_users_reporting_user_uid");
+
+                    b.Navigation("ReportedUser");
+
+                    b.Navigation("ReportingUser");
                 });
 
             modelBuilder.Entity("MareSynchronosShared.Models.CharaData", b =>
