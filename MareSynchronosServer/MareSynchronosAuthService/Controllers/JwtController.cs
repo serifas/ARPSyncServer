@@ -1,4 +1,5 @@
-﻿using MareSynchronos.API.Routes;
+﻿using MareSynchronos.API.Dto;
+using MareSynchronos.API.Routes;
 using MareSynchronosAuthService.Services;
 using MareSynchronosShared;
 using MareSynchronosShared.Data;
@@ -122,6 +123,21 @@ public class JwtController : Controller
         });
 
         return Content(token.RawData);
+    }
+
+    [AllowAnonymous]
+    [HttpPost(MareAuth.Auth_CreateIdentV2)]
+    public async Task<IActionResult> CreateTokenV2(string auth, string charaIdent)
+    {
+        var tokenResponse = await CreateToken(auth, charaIdent);
+        var tokenContent = tokenResponse as ContentResult;
+        if (tokenContent == null)
+            return tokenResponse;
+        return Json(new AuthReplyDto
+        {
+            Token = tokenContent.Content,
+            WellKnown = _configuration.GetValueOrDefault(nameof(AuthServiceConfiguration.WellKnown), string.Empty),
+        });
     }
 
     [AllowAnonymous]
