@@ -120,7 +120,7 @@ public sealed class GPoseLobbyDistributionService : IHostedService, IDisposable
             {
                 _logger.LogError(ex, "Error during Pose Data Distribution");
             }
-            await Task.Delay(TimeSpan.FromSeconds(10), token).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
         }
     }
 
