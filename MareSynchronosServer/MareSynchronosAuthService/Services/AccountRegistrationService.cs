@@ -45,9 +45,9 @@ public class AccountRegistrationService
         _serviceScopeFactory = serviceScopeFactory;
     }
 
-    public async Task<RegisterReplyDto> RegisterAccountAsync(string ua, string ip)
+    public async Task<RegisterReplyV2Dto> RegisterAccountAsync(string ua, string ip, string hashedSecretKey)
     {
-		var reply = new RegisterReplyDto();
+		var reply = new RegisterReplyV2Dto();
 
 		if (!_registrationUserAgentRegex.Match(ua).Success)
         {
@@ -99,10 +99,9 @@ public class AccountRegistrationService
 
         user.LastLoggedIn = DateTime.UtcNow;
 
-        var computedHash = StringUtils.Sha256String(StringUtils.GenerateRandomString(64) + DateTime.UtcNow.ToString());
         var auth = new Auth()
         {
-            HashedKey = StringUtils.Sha256String(computedHash),
+            HashedKey = hashedSecretKey,
             User = user,
         };
 
@@ -115,7 +114,6 @@ public class AccountRegistrationService
 
         reply.Success = true;
         reply.UID = user.UID;
-        reply.SecretKey = computedHash;
 
         RecordIpRegistration(ip);
 

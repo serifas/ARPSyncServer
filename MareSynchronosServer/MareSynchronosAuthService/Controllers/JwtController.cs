@@ -1,4 +1,5 @@
 ﻿using MareSynchronos.API.Dto;
+using MareSynchronos.API.Dto.Account;
 using MareSynchronos.API.Routes;
 using MareSynchronosAuthService.Services;
 using MareSynchronosShared;
@@ -146,7 +147,33 @@ public class JwtController : Controller
     {
         var ua = HttpContext.Request.Headers["User-Agent"][0] ?? "-";
         var ip = _accessor.GetIpAddress();
-        return Json(await _accountRegistrationService.RegisterAccountAsync(ua, ip));
+
+        // Legacy endpoint: generate a secret key for the user
+        var computedHash = StringUtils.Sha256String(StringUtils.GenerateRandomString(64) + DateTime.UtcNow.ToString());
+        var hashedKey = StringUtils.Sha256String(computedHash);
+
+        var dto = await _accountRegistrationService.RegisterAccountAsync(ua, ip, hashedKey);
+
+        return Json(new RegisterReplyDto()
+        {
+            Success = dto.Success,
+            ErrorMessage = dto.ErrorMessage,
+            UID = dto.UID,
+            SecretKey = computedHash
+        });
+    }
+
+    [AllowAnonymous]
+    [HttpPost(MareAuth.Auth_RegisterV2)]
+    public async Task<IActionResult> RegisterV2(string hashedSecretKey)
+    {
+        if (string.IsNullOrEmpty(hashedSecretKey)) return BadRequest("No HashedSecretKey");
+        if (hashedSecretKey.Length != 64) return BadRequest("Bad HashedSecretKey");
+        if (!hashedSecretKey.All(char.IsAsciiHexDigitUpper)) return BadRequest("Bad HashedSecretKey");
+
+        var ua = HttpContext.Request.Headers["User-Agent"][0] ?? "-";
+        var ip = _accessor.GetIpAddress();
+        return Json(await _accountRegistrationService.RegisterAccountAsync(ua, ip, hashedSecretKey));
     }
 
     private JwtSecurityToken CreateToken(IEnumerable<Claim> authClaims)
